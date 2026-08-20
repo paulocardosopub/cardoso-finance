@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
-import { AccessGate } from "@/components/access-gate";
+import { AuthGuard } from "@/components/auth-guard";
+import { PortfolioProvider } from "@/components/portfolio-provider";
 
 export const metadata: Metadata = {
   title: "Cardoso Finance · Wealth OS",
@@ -9,5 +10,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <AccessGate><AppShell>{children}</AppShell></AccessGate>;
+  return <AuthGuard><PortfolioProvider><AppShell>{children}</AppShell></PortfolioProvider></AuthGuard>;
 }

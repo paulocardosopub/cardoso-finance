@@ -13,6 +13,7 @@ export type Organization = {
 
 export type Building = {
   id: string;
+  dbId?: string;
   name: string;
   city: string;
   state: string;
@@ -25,6 +26,7 @@ export type Building = {
   image: string;
   unitsData?: PropertyUnit[];
   sourceRows?: number;
+  sourceKey?: string;
 };
 
 export type PropertyUnit = {
@@ -38,6 +40,32 @@ export type PropertyUnit = {
   nextDue?: string;
   sourceId?: string;
   quantity?: number;
+  tenantName?: string;
+  lease?: LeaseSummary;
+};
+
+export type LeaseSummary = {
+  id: string;
+  tenantId?: string;
+  tenantName?: string;
+  startDate?: string;
+  endDate?: string;
+  currentRent: number;
+  nextAdjustmentDate?: string;
+  adjustmentFrequency?: string;
+  adjustmentIndex?: string;
+  notes?: string;
+  status: string;
+};
+
+export type NotificationItem = {
+  id: string;
+  type: "lease_ending" | "rent_adjustment" | "general";
+  title: string;
+  message: string;
+  dueDate: string;
+  status: string;
+  entityId?: string;
 };
 
 export type Activity = {
