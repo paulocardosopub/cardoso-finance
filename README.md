@@ -10,7 +10,7 @@ copy .env.example .env.local
 npm run dev
 ```
 
-O projeto abre em `http://localhost:3000`. Sem variáveis do Supabase, a interface usa dados de demonstração para permitir a validação do produto e da navegação. Quando as variáveis existirem, o cliente Supabase estará pronto para persistência real.
+O projeto abre em `http://localhost:3000`. A interface usa exclusivamente os dados iniciais importados da planilha enviada. Quando as variáveis existirem, o cliente Supabase estará pronto para persistência real.
 
 Após o deploy, o site público fica em `https://paulocardosopub.github.io/cardoso-finance/`.
 
@@ -29,7 +29,6 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sua-chave-anon
 ```
 
 3. Aplique `supabase/migrations/202608200001_initial_schema.sql` pelo SQL Editor ou pela Supabase CLI.
-4. Para dados demonstrativos, crie um usuário em Auth e substitua o UUID em `supabase/seed/demo.sql` antes de executá-lo.
 
 A migration cria as entidades multi-organização, função segura para criação de organizações, trigger de perfis, índices, políticas RLS e bucket privado `organization-documents`.
 
@@ -37,9 +36,9 @@ A migration cria as entidades multi-organização, função segura para criaçã
 
 - `app/`: rotas App Router (dashboard, autenticação, imóveis, financeiro e organização)
 - `components/`: shell, navegação e visualizações reutilizáveis
-- `lib/`: dados de demonstração, formatação e cliente Supabase
+- `lib/`: dados iniciais importados, formatação e cliente Supabase
 - `supabase/migrations/`: schema versionado, RLS, Storage e funções
-- `supabase/seed/`: seed opcional de demonstração
+- `supabase/seed/`: seeds opcionais para dados reais após a criação do usuário
 - `types/`: tipos de domínio compartilhados
 
 ## Validação

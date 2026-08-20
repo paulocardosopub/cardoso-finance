@@ -25,12 +25,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return <div className="app-shell">
     <aside className={`sidebar ${open ? "open" : ""}`}>
       <div className="brand"><div className="brand-mark">C</div><div className="brand-name">Cardoso <span>Finance</span></div><button className="icon-btn mobile-menu" onClick={() => setOpen(false)} aria-label="Fechar menu"><X size={17} /></button></div>
-      <div className="org-switcher"><div className="org-icon"><Building2 size={14} /></div><div className="org-meta"><strong>Cardoso Participações</strong><small>Holding patrimonial</small></div><ChevronDown size={14} color="#8490a5" /></div>
+      <div className="org-switcher"><div className="org-icon"><Building2 size={14} /></div><div className="org-meta"><strong>Cardoso Finance</strong><small>Dados importados da planilha</small></div><ChevronDown size={14} color="#8490a5" /></div>
       <div className="nav-label">Visão geral</div>
       <nav className="nav">{primaryNav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={`nav-link ${pathname === href || (href !== "/" && pathname.startsWith(href)) ? "active" : ""}`}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav>
       <div className="nav-label" style={{ marginTop: 25 }}>Gestão</div>
       <nav className="nav">{managementNav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={`nav-link ${pathname.startsWith(href) ? "active" : ""}`}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav>
-      <div className="sidebar-bottom"><div className="profile-mini"><div className="avatar">PC</div><div><strong>Paulo Cardoso</strong><small>Owner · conta demo</small></div><ChevronDown size={14} color="#8490a5" /></div></div>
+      <div className="sidebar-bottom"><div className="profile-mini"><div className="avatar">CF</div><div><strong>Acesso provisório</strong><small>Login definitivo pendente</small></div><ChevronDown size={14} color="#8490a5" /></div></div>
     </aside>
     <main className="main"><header className="topbar"><button className="icon-btn mobile-menu" onClick={() => setOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button><div className="breadcrumb"><Home size={13} /><span>/</span><strong>{pathname === "/" ? "Visão geral" : pathname.slice(1).replaceAll("-", " ")}</strong></div><div className="top-actions"><button className="icon-btn notification-dot" aria-label="Notificações"><Bell size={17} /></button><div className="avatar" style={{ width: 27, height: 27, fontSize: 10 }}>PC</div></div></header>{children}</main>
   </div>;

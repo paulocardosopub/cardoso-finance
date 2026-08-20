@@ -1,15 +1,15 @@
 import Link from "next/link";
 import { ArrowLeft, Building2, MapPin, Ruler } from "lucide-react";
-import { demoBuildings } from "@/lib/demo-data";
+import { initialBuildingsForApp } from "@/lib/initial-data";
 import { brl, compactBrl } from "@/lib/format";
 
 export function generateStaticParams() {
-  return demoBuildings.map((building) => ({ id: building.id }));
+  return initialBuildingsForApp.map((building) => ({ id: building.id }));
 }
 
 export default async function GenericBuildingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const building = demoBuildings.find((item) => item.id === id) ?? demoBuildings[0];
+  const building = initialBuildingsForApp.find((item) => item.id === id) ?? initialBuildingsForApp[0];
   const units = building.unitsData ?? [];
   const statusLabel: Record<string, string> = { alugado: "Alugado", vago: "Vago", venda: "À venda", manutencao: "Manutenção" };
   const occupancy = building.units ? Math.round((building.occupied / building.units) * 100) : 0;
