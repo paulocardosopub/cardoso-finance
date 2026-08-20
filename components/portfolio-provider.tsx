@@ -3,7 +3,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
-import { initialBuildings } from "@/lib/initial-property-data";
 import type { Building, LeaseSummary, MemberRole, NotificationItem, PropertyUnit } from "@/types/domain";
 
 type PortfolioContextValue = {
@@ -92,4 +91,3 @@ export function usePortfolio() {
   return context;
 }
 
-export function initialFallbackBuildings() { return initialBuildings; }
