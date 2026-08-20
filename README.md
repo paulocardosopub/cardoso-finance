@@ -14,6 +14,10 @@ O projeto abre em `http://localhost:3000`. Sem variáveis do Supabase, a interfa
 
 Após o deploy, o site público fica em `https://paulocardosopub.github.io/cardoso-finance/`.
 
+Durante a implantação, o site exibe uma tela de acesso provisória. A senha temporária é `17011941`; ela será substituída pelo login Supabase na próxima etapa.
+
+Os dados iniciais de imóveis foram importados de `dados imoveis.xlsx` e organizados em 21 prédios/grupos e suas unidades, mantendo lojas, kitnets, apartamentos, salas, terrenos e itens compostos.
+
 ## Supabase
 
 1. Crie um projeto no Supabase.

@@ -23,6 +23,8 @@ export type Building = {
   expenses: number;
   status: "ativo" | "reforma" | "venda" | "vendido" | "inativo";
   image: string;
+  unitsData?: PropertyUnit[];
+  sourceRows?: number;
 };
 
 export type PropertyUnit = {
@@ -34,6 +36,8 @@ export type PropertyUnit = {
   rent: number;
   tenant?: string;
   nextDue?: string;
+  sourceId?: string;
+  quantity?: number;
 };
 
 export type Activity = {
