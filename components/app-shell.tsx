@@ -25,7 +25,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const { organizationName, notifications } = usePortfolio();
-  const isPublic = pathname.endsWith("/login") || pathname.endsWith("/onboarding");
+  const route = pathname.replace(/\/+$/, "");
+  const isPublic = route.endsWith("/login") || route.endsWith("/onboarding");
   if (isPublic) return <>{children}</>;
   async function signOut() {
     const supabase = createSupabaseBrowserClient();

@@ -11,7 +11,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const isPublic = pathname.endsWith("/login") || pathname.endsWith("/onboarding");
+  const route = pathname.replace(/\/+$/, "");
+  const isPublic = route.endsWith("/login") || route.endsWith("/onboarding");
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
