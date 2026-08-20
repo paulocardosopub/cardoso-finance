@@ -12,6 +12,8 @@ npm run dev
 
 O projeto abre em `http://localhost:3000`. Sem variáveis do Supabase, a interface usa dados de demonstração para permitir a validação do produto e da navegação. Quando as variáveis existirem, o cliente Supabase estará pronto para persistência real.
 
+Após o deploy, o site público fica em `https://paulocardosopub.github.io/cardoso-finance/`.
+
 ## Supabase
 
 1. Crie um projeto no Supabase.
@@ -46,4 +48,4 @@ npm run build
 
 ## Estado da V0.1
 
-A fatia local navegável está pronta para validação visual e de fluxo. O próximo passo de integração é conectar os formulários de autenticação e CRUD às tabelas Supabase usando o schema já versionado. Publicação no GitHub e aplicação das migrations exigem credenciais/repositório autorizados, que não estão presentes nesta sessão.
+A fatia local e pública navegável está pronta para validação visual e de fluxo. O próximo passo de produto é conectar os formulários de organizações, imóveis, unidades, locações e financeiro aos CRUDs Supabase usando o schema já versionado.

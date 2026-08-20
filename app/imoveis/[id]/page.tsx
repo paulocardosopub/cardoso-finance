@@ -3,6 +3,10 @@ import { ArrowLeft, Building2, MapPin } from "lucide-react";
 import { demoBuildings } from "@/lib/demo-data";
 import { compactBrl } from "@/lib/format";
 
+export function generateStaticParams() {
+  return demoBuildings.map((building) => ({ id: building.id }));
+}
+
 export default async function GenericBuildingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const building = demoBuildings.find((item) => item.id === id) ?? demoBuildings[0];
