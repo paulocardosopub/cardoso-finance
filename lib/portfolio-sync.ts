@@ -11,6 +11,8 @@ function dbUnitStatus(status: string) {
 export async function syncInitialPortfolio(organizationId: string) {
   const supabase = createSupabaseBrowserClient();
   if (!supabase) throw new Error("Supabase não configurado");
+  const { data: authData } = await supabase.auth.getUser();
+  if (authData.user?.email?.toLowerCase() !== "paulocardosopub@gmail.com") return { created: false, buildings: 0, units: 0 };
   const { data: existing } = await supabase.from("assets").select("id").eq("organization_id", organizationId).eq("source_key", "casa-lago-sul").maybeSingle();
   if (existing) return { created: false, buildings: 0, units: 0 };
 
