@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
-import { ArrowLeft, Building2, Check, Edit3, ExternalLink, FileUp, Image as ImageIcon, MapPin, Paperclip, Ruler, Save, Star, X } from "lucide-react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, Building2, Check, Edit3, ExternalLink, FileUp, Image as ImageIcon, MapPin, Paperclip, Plus, Ruler, Save, Star, Trash2, X } from "lucide-react";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { brl, compactBrl } from "@/lib/format";
@@ -15,13 +15,17 @@ type DocumentRow = { id: string; name: string; category: string; storage_path: s
 
 export default function BuildingDetailClient() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { buildings, organizationId, role, refresh, loading } = usePortfolio();
-  const building = buildings.find((item) => item.id === params.id);
+  const routeBuildingId = params.id === "novo" ? searchParams.get("building") : params.id;
+  const building = buildings.find((item) => item.id === routeBuildingId || item.dbId === routeBuildingId);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("todos");
   const [editing, setEditing] = useState<PropertyUnit | null>(null);
-  const [editingBuildingName, setEditingBuildingName] = useState(false);
-  const [buildingNameValue, setBuildingNameValue] = useState("");
+  const [editingBuildingDetails, setEditingBuildingDetails] = useState(false);
+  const [buildingForm, setBuildingForm] = useState({ name: "", value: "", city: "", state: "", address: "", lastValuationDate: "", status: "active", notes: "" });
+  const [creatingUnit, setCreatingUnit] = useState(false);
   const [filesUnit, setFilesUnit] = useState<PropertyUnit | null>(null);
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [primaryPhotos, setPrimaryPhotos] = useState<Record<string, string>>({});
@@ -58,11 +62,12 @@ export default function BuildingDetailClient() {
 
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando unidade...</p></div></div>;
   if (!building || !organizationId) return <div className="content"><div className="empty-state"><h3>Imóvel não encontrado</h3><Link href="/imoveis" className="button button-primary">Voltar</Link></div></div>;
+  const currentBuilding = building;
   const occupancy = building.units ? Math.round((building.occupied / building.units) * 100) : 0;
 
-  async function saveBuildingName(event: React.FormEvent<HTMLFormElement>) {
+  async function saveBuildingDetails(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const nextName = buildingNameValue.trim();
+    const nextName = buildingForm.name.trim();
     const assetId = building?.assetId;
     if (!nextName || !assetId || role === "viewer") {
       setMessage(role === "viewer" ? "Seu perfil não pode editar este imóvel." : "Informe um nome válido para o imóvel.");
@@ -70,14 +75,41 @@ export default function BuildingDetailClient() {
     }
     const supabase = createSupabaseBrowserClient();
     if (!supabase) return;
-    const result = await supabase.from("assets").update({ name: nextName }).eq("id", assetId).eq("organization_id", organizationId);
-    if (result.error) {
-      setMessage(result.error.message);
-      return;
-    }
-    setEditingBuildingName(false);
-    setMessage("Nome principal do imóvel atualizado.");
+    const value = Number(buildingForm.value.replace(",", "."));
+    const assetResult = await supabase.from("assets").update({ name: nextName, current_value: Number.isFinite(value) ? value : 0, status: buildingForm.status === "sold" ? "sold" : "active" }).eq("id", assetId).eq("organization_id", organizationId);
+    const buildingResult = await supabase.from("buildings").update({ city: buildingForm.city.trim(), state: buildingForm.state.trim(), address: buildingForm.address.trim(), current_value: Number.isFinite(value) ? value : 0, last_valuation_date: buildingForm.lastValuationDate || null, status: buildingForm.status, notes: buildingForm.notes.trim() }).eq("id", building.dbId).eq("organization_id", organizationId);
+    if (assetResult.error || buildingResult.error) { setMessage(assetResult.error?.message ?? buildingResult.error?.message ?? "Não foi possível salvar o imóvel."); return; }
+    setEditingBuildingDetails(false);
+    setMessage("Dados do imóvel atualizados.");
     await refresh();
+  }
+
+  async function deleteBuilding() {
+    if (!currentBuilding.dbId || !currentBuilding.assetId || role !== "owner" && role !== "admin") return;
+    if (!window.confirm(`Excluir permanentemente “${currentBuilding.name}” e todas as suas unidades?`)) return;
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    const unitIds = (currentBuilding.unitsData ?? []).map((unit) => unit.id);
+    if (unitIds.length) await supabase.from("leases").delete().eq("organization_id", organizationId).in("unit_id", unitIds);
+    const buildingResult = await supabase.from("buildings").delete().eq("id", currentBuilding.dbId).eq("organization_id", organizationId);
+    if (buildingResult.error) { setMessage(buildingResult.error.message); return; }
+    const assetResult = await supabase.from("assets").delete().eq("id", currentBuilding.assetId).eq("organization_id", organizationId);
+    if (assetResult.error) { setMessage(assetResult.error.message); return; }
+    await refresh();
+    router.push("/imoveis");
+  }
+
+  async function saveNewUnit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!currentBuilding.dbId || role === "viewer") return;
+    const form = new FormData(event.currentTarget);
+    const code = String(form.get("code") ?? "").trim();
+    if (!code) return;
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    const result = await supabase.from("property_units").insert({ organization_id: organizationId, building_id: currentBuilding.dbId, code, unit_type: String(form.get("type") ?? "Unidade"), potential_rent: Number(String(form.get("rent") ?? "0").replace(",", ".")) || 0, status: dbStatus[String(form.get("status")) as UnitStatus] ?? "vacant" });
+    if (result.error) setMessage(result.error.message);
+    else { setCreatingUnit(false); setMessage("Nova unidade criada."); await refresh(); }
   }
 
   async function openFiles(unit: PropertyUnit) {
@@ -209,14 +241,15 @@ export default function BuildingDetailClient() {
 
   return <div className="content">
     <Link href="/imoveis" className="breadcrumb" style={{ marginBottom: 25, display: "inline-flex" }}><ArrowLeft size={13} /> Imóveis</Link>
-    <div className="page-heading"><div><div className="eyebrow"><Building2 size={13} /> {building.status}</div><h1>{building.name}</h1><p className="subtitle"><MapPin size={12} style={{ verticalAlign: "-2px" }} /> {building.city}, {building.state} · {building.units} unidades</p></div><button className="button button-ghost" onClick={() => { setBuildingNameValue(building.name); setEditingBuildingName(true); }} disabled={role === "viewer"}><Edit3 size={14} /> Editar imóvel</button></div>
+    <div className="page-heading"><div><div className="eyebrow"><Building2 size={13} /> {building.status}</div><h1>{building.name}</h1><p className="subtitle"><MapPin size={12} style={{ verticalAlign: "-2px" }} /> {building.city}, {building.state} · {building.units} unidades</p></div><div className="page-heading-actions"><button className="button button-ghost" onClick={() => { setBuildingForm({ name: building.name, value: String(building.value), city: building.city, state: building.state, address: building.address ?? "", lastValuationDate: building.lastValuationDate ?? "", status: building.status === "venda" ? "for_sale" : building.status === "vendido" ? "sold" : building.status === "reforma" ? "renovation" : "active", notes: building.notes ?? "" }); setEditingBuildingDetails(true); }} disabled={role === "viewer"}><Edit3 size={14} /> Editar imóvel</button>{(role === "owner" || role === "admin") && <button className="button button-ghost danger-button" onClick={() => void deleteBuilding()}><Trash2 size={14} /> Excluir</button>}</div></div>
     <div className="panel"><div className="panel-heading"><div><h2>Resumo do ativo</h2><p>Dados sincronizados · patrimônio baseado somente em AVALIAÇÃO.</p></div></div><div className="metrics"><div className="metric-card"><div className="metric-top"><span>Valor patrimonial</span></div><div className="metric-value">{compactBrl(building.value)}</div></div><div className="metric-card"><div className="metric-top"><span>Ocupação</span></div><div className="metric-value">{occupancy}%</div></div><div className="metric-card"><div className="metric-top"><span>Receita mensal</span></div><div className="metric-value">{compactBrl(building.revenue)}</div></div></div></div>
-    <div className="panel section-gap"><div className="panel-heading"><div><h2>Unidades e contratos</h2><p>{units.length} resultados · fotos, arquivos e edição rápida disponíveis.</p></div><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input className="table-filter" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar unidade, tipo ou inquilino" /><select className="filter-select" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="todos">Todos</option><option value="alugados">Alugados</option><option value="vagos">Vagos</option><option value="contratos">Contratos vencendo</option><option value="reajustes">Reajustes próximos</option><option value="venda">À venda</option></select></div></div>
+    <div className="panel section-gap"><div className="panel-heading"><div><h2>Unidades e contratos</h2><p>{units.length} resultados · fotos, arquivos e edição rápida disponíveis.</p></div><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input className="table-filter" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar unidade, tipo ou inquilino" /><select className="filter-select" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="todos">Todos</option><option value="alugados">Alugados</option><option value="vagos">Vagos</option><option value="contratos">Contratos vencendo</option><option value="reajustes">Reajustes próximos</option><option value="venda">À venda</option></select><button className="button button-ghost button-small" onClick={() => setCreatingUnit(true)} disabled={role === "viewer"}><Plus size={13} /> Nova unidade</button></div></div>
       {message && <p className="form-success"><Check size={13} /> {message}</p>}
       <div className="table-wrap"><table><thead><tr><th>Foto</th><th>Unidade</th><th>Tipo</th><th>Inquilino</th><th>Status</th><th>Aluguel mensal</th><th>Início</th><th>Fim</th><th>Próximo reajuste</th><th>Ações</th></tr></thead><tbody>{units.map((unit) => { const isRented = unit.status === "alugado" || unit.status === "venda_alugado" || unit.rent > 0; const statusLabel = unit.status === "venda_alugado" || (unit.status === "venda" && isRented) ? labels.venda_alugado : labels[unit.status]; return <tr key={unit.id}><td><div className="unit-photo-thumb">{primaryPhotos[unit.id] ? <img src={primaryPhotos[unit.id]} alt={`Foto principal de ${unit.code}`} /> : <ImageIcon size={18} />}</div></td><td><strong>{unit.code}</strong><small><Ruler size={11} /> Qtd. {unit.quantity ?? 1}</small></td><td>{unit.type}</td><td>{unit.tenantName ?? "Não cadastrado"}</td><td><span className={`status status-${unit.status === "venda" || unit.status === "venda_alugado" ? "vago" : unit.status}`}>{statusLabel}</span></td><td><strong>{unit.rent ? brl(unit.rent) : "—"}</strong></td><td>{unit.lease?.startDate ?? "—"}</td><td>{unit.lease?.endDate ?? "—"}</td><td>{unit.lease?.nextAdjustmentDate ?? "—"}</td><td><button className="icon-btn" aria-label={`Fotos e arquivos de ${unit.code}`} onClick={() => void openFiles(unit)}><Paperclip size={14} /></button><button className="icon-btn" aria-label={`Editar ${unit.code}`} onClick={() => setEditing(unit)}><Edit3 size={14} /></button></td></tr>; })}</tbody></table></div>
     </div>
     {filesUnit && <div className="modal-backdrop"><section className="edit-modal"><div className="panel-heading"><div><h2>Fotos e arquivos · {filesUnit.code}</h2><p>Envie várias fotos e escolha qual será exibida como principal.</p></div><button className="icon-btn" onClick={() => setFilesUnit(null)} aria-label="Fechar arquivos"><X size={16} /></button></div><div className="upload-grid"><label className="upload-card"><ImageIcon size={22} /><strong>Enviar fotos</strong><small>Selecione uma ou várias · JPG, PNG ou WebP</small><input type="file" accept="image/*" multiple onChange={(event) => void uploadDocuments(event, "photo")} /></label><label className="upload-card"><FileUp size={22} /><strong>Enviar contrato</strong><small>PDF ou documento</small><input type="file" accept="application/pdf,.doc,.docx,image/*" onChange={(event) => void uploadDocuments(event, "contract")} /></label></div>{fileLoading && <p className="muted">Enviando ou carregando arquivos...</p>}<div className="document-list">{documents.length ? documents.map((doc) => <div key={doc.id} className="document-item">{doc.signedUrl ? <a href={doc.signedUrl} target="_blank" rel="noreferrer" className="document-link">{doc.category === "photo" ? <img className="document-thumb" src={doc.signedUrl} alt={doc.name} /> : <FileUp size={15} />}<span>{doc.name}</span></a> : <span className="document-link">{doc.category === "photo" ? <ImageIcon size={15} /> : <FileUp size={15} />}<span>{doc.name}</span></span>}<div className="document-actions">{doc.category === "photo" && (doc.is_primary ? <span className="primary-badge"><Star size={12} /> Principal</span> : <button type="button" className="button button-ghost button-small" onClick={() => void setPrimaryPhoto(doc)}><Star size={12} /> Usar como principal</button>)}{doc.signedUrl && <a href={doc.signedUrl} target="_blank" rel="noreferrer" className="icon-btn" aria-label={`Abrir ${doc.name}`}><ExternalLink size={14} /></a>}</div></div>) : <p className="muted">Nenhum arquivo enviado ainda.</p>}</div></section></div>}
-    {editingBuildingName && <div className="modal-backdrop"><form className="edit-modal" onSubmit={saveBuildingName}><div className="panel-heading"><div><h2>Editar imóvel</h2><p>Altere o nome principal exibido nas listas, no patrimônio e no dashboard.</p></div><button type="button" className="icon-btn" onClick={() => setEditingBuildingName(false)} aria-label="Fechar edição"><X size={16} /></button></div><div className="form-grid"><label className="form-grid-wide">Nome principal<input name="buildingName" value={buildingNameValue} onChange={(event) => setBuildingNameValue(event.target.value)} required /></label></div><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={() => setEditingBuildingName(false)}>Cancelar</button><button type="submit" className="button button-primary"><Save size={14} /> Salvar nome</button></div></form></div>}
+    {editingBuildingDetails && <div className="modal-backdrop"><form className="edit-modal" onSubmit={saveBuildingDetails}><div className="panel-heading"><div><h2>Editar imóvel</h2><p>Nome, AVALIAÇÃO, data de avaliação, localização e status.</p></div><button type="button" className="icon-btn" onClick={() => setEditingBuildingDetails(false)} aria-label="Fechar edição"><X size={16} /></button></div><div className="form-grid"><label className="form-grid-wide">Nome principal<input value={buildingForm.name} onChange={(event) => setBuildingForm((current) => ({ ...current, name: event.target.value }))} required /></label><label>AVALIAÇÃO<input type="number" min="0" step="0.01" value={buildingForm.value} onChange={(event) => setBuildingForm((current) => ({ ...current, value: event.target.value }))} required /></label><label>Data da última avaliação<input type="date" value={buildingForm.lastValuationDate} onChange={(event) => setBuildingForm((current) => ({ ...current, lastValuationDate: event.target.value }))} /></label><label>Cidade<input value={buildingForm.city} onChange={(event) => setBuildingForm((current) => ({ ...current, city: event.target.value }))} /></label><label>Estado<input value={buildingForm.state} onChange={(event) => setBuildingForm((current) => ({ ...current, state: event.target.value }))} maxLength={2} /></label><label className="form-grid-wide">Endereço<input value={buildingForm.address} onChange={(event) => setBuildingForm((current) => ({ ...current, address: event.target.value }))} /></label><label>Status<select value={buildingForm.status} onChange={(event) => setBuildingForm((current) => ({ ...current, status: event.target.value }))}><option value="active">Ativo</option><option value="renovation">Reforma</option><option value="for_sale">À venda</option><option value="sold">Vendido</option><option value="inactive">Inativo</option></select></label><label className="form-grid-wide">Observações<textarea value={buildingForm.notes} onChange={(event) => setBuildingForm((current) => ({ ...current, notes: event.target.value }))} rows={3} /></label></div><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={() => setEditingBuildingDetails(false)}>Cancelar</button><button type="submit" className="button button-primary"><Save size={14} /> Salvar imóvel</button></div></form></div>}
+    {creatingUnit && <div className="modal-backdrop"><form className="edit-modal" onSubmit={saveNewUnit}><div className="panel-heading"><div><h2>Nova unidade</h2><p>Crie uma unidade para este prédio.</p></div><button type="button" className="icon-btn" onClick={() => setCreatingUnit(false)} aria-label="Fechar"><X size={16} /></button></div><div className="form-grid"><label>Unidade<input name="code" placeholder="Sala 1.01" required /></label><label>Tipo<input name="type" defaultValue="Unidade" required /></label><label>Status<select name="status" defaultValue="vago">{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Aluguel mensal<input name="rent" type="number" min="0" step="0.01" defaultValue="0" /></label></div><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={() => setCreatingUnit(false)}>Cancelar</button><button type="submit" className="button button-primary"><Save size={14} /> Criar unidade</button></div></form></div>}
     {editing && <div className="modal-backdrop"><form className="edit-modal" onSubmit={saveUnit}><div className="panel-heading"><div><h2>Editar {editing.code}</h2><p>Unidade, inquilino e dados do contrato.</p></div><button type="button" className="icon-btn" onClick={() => setEditing(null)}><X size={16} /></button></div><div className="form-grid"><label>Unidade<input name="code" defaultValue={editing.code} required /></label><label>Tipo<input name="type" defaultValue={editing.type} required /></label><label>Status<select name="status" defaultValue={editing.status}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Aluguel mensal<input name="rent" type="number" min="0" step="0.01" defaultValue={editing.rent} /></label><label>Inquilino<input name="tenant" defaultValue={editing.tenantName ?? ""} placeholder="Nome do inquilino" /></label><label>Início<input name="startDate" type="date" defaultValue={editing.lease?.startDate ?? ""} /></label><label>Fim<input name="endDate" type="date" defaultValue={editing.lease?.endDate ?? ""} /></label><label>Próximo reajuste<input name="nextAdjustment" type="date" defaultValue={editing.lease?.nextAdjustmentDate ?? ""} /></label><label>Índice<input name="adjustmentIndex" defaultValue={editing.lease?.adjustmentIndex ?? ""} placeholder="IPCA, IGP-M..." /></label><label>Frequência<select name="frequency" defaultValue={editing.lease?.adjustmentFrequency ?? "annual"}><option value="annual">Anual</option><option value="semiannual">Semestral</option><option value="monthly">Mensal</option></select></label><label className="form-grid-wide">Link do contrato<input name="contractUrl" type="url" defaultValue={editing.lease?.contractDocumentUrl ?? ""} placeholder="https://..." /></label><label className="form-grid-wide">Observações<textarea name="notes" defaultValue={editing.lease?.notes ?? ""} rows={3} /></label></div><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={() => setEditing(null)}>Cancelar</button><button type="submit" className="button button-primary"><Save size={14} /> Salvar contrato</button></div></form></div>}
   </div>;
 }

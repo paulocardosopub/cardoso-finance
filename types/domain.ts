@@ -13,6 +13,7 @@ export type ExpenseRecord = {
   expense_kind: ExpenseKind;
   responsible?: string;
   responsible_user_id?: string;
+  responsible_contact_id?: string;
   building_id?: string;
 };
 
@@ -39,6 +40,13 @@ export type Building = {
   expenses: number;
   status: "ativo" | "reforma" | "venda" | "vendido" | "inativo";
   image: string;
+  address?: string;
+  postalCode?: string;
+  description?: string;
+  acquisitionDate?: string;
+  acquisitionValue?: number;
+  lastValuationDate?: string;
+  notes?: string;
   unitsData?: PropertyUnit[];
   sourceRows?: number;
   sourceKey?: string;

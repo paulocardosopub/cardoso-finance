@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, CheckCircle2, MailPlus, Plus, ShieldCheck, Users } from "lucide-react";
+import { Building2, CheckCircle2, MailPlus, Plus, ShieldCheck, Trash2, UserRoundPlus, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
@@ -9,12 +9,15 @@ import { syncInitialPortfolio } from "@/lib/portfolio-sync";
 type MemberRole = "owner" | "admin" | "manager" | "viewer";
 
 type Member = {
+  member_id: string;
   user_id: string;
+  contact_id?: string | null;
   full_name: string;
   email: string;
   role: MemberRole;
   ownership_percentage: number;
   joined_at: string;
+  is_placeholder?: boolean;
 };
 
 const roleLabels: Record<MemberRole, string> = {
@@ -34,6 +37,12 @@ export default function OrganizationPage() {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [roleSaving, setRoleSaving] = useState<string | null>(null);
   const [ownershipSaving, setOwnershipSaving] = useState<string | null>(null);
+  const [placeholderName, setPlaceholderName] = useState("");
+  const [placeholderEmail, setPlaceholderEmail] = useState("");
+  const [placeholderRole, setPlaceholderRole] = useState<MemberRole>("viewer");
+  const [placeholderSaving, setPlaceholderSaving] = useState(false);
+  const [deletingMember, setDeletingMember] = useState<Member | null>(null);
+  const [replacementId, setReplacementId] = useState("");
 
   async function loadMembers() {
     if (!organizationId) return;
@@ -58,11 +67,11 @@ export default function OrganizationPage() {
     if (!organizationId || role === "viewer" || member.role === newRole) return;
     const supabase = createSupabaseBrowserClient();
     if (!supabase) return;
-    setRoleSaving(member.user_id);
+    setRoleSaving(member.member_id);
     setMessage("");
     const result = await supabase.rpc("update_member_role", {
       target_org: organizationId,
-      target_user: member.user_id,
+      target_user: member.member_id,
       new_role: newRole,
     });
     if (result.error) {
@@ -85,12 +94,32 @@ export default function OrganizationPage() {
     }
     const supabase = createSupabaseBrowserClient();
     if (!supabase) return;
-    setOwnershipSaving(member.user_id);
+    setOwnershipSaving(member.member_id);
     setMessage("");
-    const result = await supabase.rpc("update_member_ownership", { target_org: organizationId, target_user: member.user_id, new_percentage: percentage });
+    const result = await supabase.rpc("update_member_ownership", { target_org: organizationId, target_user: member.member_id, new_percentage: percentage });
     if (result.error) setMessage(result.error.message === "invalid_percentage" ? "A participação deve ficar entre 0% e 100%." : "Não foi possível atualizar a participação.");
     else { setMessage("Participação atualizada. O restante foi redistribuído para totalizar 100%."); await loadMembers(); await refresh(); }
     setOwnershipSaving(null);
+  }
+
+  async function createPlaceholder() {
+    if (!organizationId || !canManage || !placeholderName.trim()) return;
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    setPlaceholderSaving(true);
+    const result = await supabase.rpc("create_organization_contact", { target_org: organizationId, target_name: placeholderName.trim(), target_email: placeholderEmail.trim().toLowerCase(), target_role: placeholderRole });
+    if (result.error) setMessage(result.error.message === "name_required" ? "Informe o nome do membro." : "Não foi possível criar o membro sem acesso.");
+    else { setMessage("Membro criado sem acesso. A participação foi redistribuída automaticamente."); setPlaceholderName(""); setPlaceholderEmail(""); setPlaceholderRole("viewer"); await loadMembers(); await refresh(); }
+    setPlaceholderSaving(false);
+  }
+
+  async function deletePlaceholder() {
+    if (!organizationId || !canManage || !deletingMember?.contact_id) return;
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    const result = await supabase.rpc("delete_organization_contact", { target_org: organizationId, target_contact: deletingMember.contact_id, reassign_to: replacementId || null });
+    if (result.error) setMessage(result.error.message === "replacement_not_found" ? "Escolha um membro válido para receber as responsabilidades." : "Não foi possível remover o membro sem acesso.");
+    else { setMessage("Membro removido e participações redistribuídas."); setDeletingMember(null); setReplacementId(""); await loadMembers(); await refresh(); }
   }
 
   async function invite() {
@@ -130,6 +159,7 @@ export default function OrganizationPage() {
 
   const canManage = role === "owner" || role === "admin";
   const ownershipTotal = members.reduce((total, member) => total + Number(member.ownership_percentage || 0), 0);
+  const replacementOptions = members.filter((member) => member.member_id !== deletingMember?.member_id);
 
   return <div className="content">
     <div className="page-heading">
@@ -140,10 +170,11 @@ export default function OrganizationPage() {
     <div className="dashboard-grid">
       <div className="panel">
         <div className="panel-heading"><div><h2>Membros</h2><p>{membersLoading ? "Carregando membros…" : `${members.length} membro(s) com acesso`}</p></div><ShieldCheck size={17} color="#80e2b0" /></div>
-        {members.length ? <div className="table-wrap"><table><thead><tr><th>Usuário</th><th>Função</th><th>Participação</th><th>Entrada</th></tr></thead><tbody>{members.map((member) => <tr key={member.user_id}><td><strong>{member.full_name || "Usuário autenticado"}</strong><span className="member-email">{member.email}</span></td><td>{member.role === "owner" || !canManage ? <span className="tag">{roleLabels[member.role]}</span> : <select className="filter-select member-role-select" value={member.role} disabled={roleSaving === member.user_id} onChange={(event) => void updateMemberRole(member, event.target.value as MemberRole)}><option value="viewer">Leitor</option><option value="manager">Gestor</option><option value="admin">Administrador</option></select>}</td><td>{canManage ? <div className="ownership-editor"><input className="ownership-input" type="number" min="0" max="100" step="0.01" value={member.ownership_percentage} disabled={ownershipSaving === member.user_id} onChange={(event) => void updateMemberOwnership(member, event.target.value)} /><span>%</span></div> : <span className="tag">{Number(member.ownership_percentage || 0).toFixed(2).replace(".", ",")}%</span>}</td><td className="muted">{member.joined_at ? new Date(member.joined_at).toLocaleDateString("pt-BR") : "—"}</td></tr>)}</tbody></table></div> : <div className="empty-state"><Users size={30} /><h3>Nenhum membro cadastrado</h3><p>Crie uma organização para começar.</p></div>}
+        {members.length ? <div className="table-wrap"><table><thead><tr><th>Usuário / membro</th><th>Função</th><th>Participação</th><th>Entrada</th><th /></tr></thead><tbody>{members.map((member) => <tr key={member.member_id}><td><strong>{member.full_name || "Usuário autenticado"}</strong><span className="member-email">{member.email || "Sem e-mail · membro sem acesso"} {member.is_placeholder && <span className="tag">Sem acesso</span>}</span></td><td>{member.role === "owner" || !canManage ? <span className="tag">{roleLabels[member.role]}</span> : <select className="filter-select member-role-select" value={member.role} disabled={roleSaving === member.member_id} onChange={(event) => void updateMemberRole(member, event.target.value as MemberRole)}><option value="viewer">Leitor</option><option value="manager">Gestor</option><option value="admin">Administrador</option></select>}</td><td>{canManage ? <div className="ownership-editor"><input className="ownership-input" type="number" min="0" max="100" step="0.01" value={member.ownership_percentage} disabled={ownershipSaving === member.member_id} onChange={(event) => void updateMemberOwnership(member, event.target.value)} /><span>%</span></div> : <span className="tag">{Number(member.ownership_percentage || 0).toFixed(2).replace(".", ",")}%</span>}</td><td className="muted">{member.joined_at ? new Date(member.joined_at).toLocaleDateString("pt-BR") : "—"}</td><td>{member.is_placeholder && canManage && <button type="button" className="icon-btn danger-btn" aria-label={`Remover ${member.full_name}`} onClick={() => { setDeletingMember(member); setReplacementId(""); }}><Trash2 size={14} /></button>}</td></tr>)}</tbody></table></div> : <div className="empty-state"><Users size={30} /><h3>Nenhum membro cadastrado</h3><p>Crie uma organização para começar.</p></div>}
         <p className={Math.abs(ownershipTotal - 100) < 0.001 ? "muted organization-note" : "form-error organization-note"}>Participação total: <strong>{ownershipTotal.toFixed(2).replace(".", ",")}%</strong>. {canManage ? "Ao alterar uma pessoa, o restante é redistribuído automaticamente para fechar 100%." : "As porcentagens definem a distribuição de receitas, responsabilidades e lucros."}</p>
       </div>
-      <div className="panel"><div className="panel-heading"><div><h2>Acesso</h2><p>Convites e isolamento de dados</p></div><Building2 size={17} color="#80e2b0" /></div><div className="setting-row"><span>Organização ativa</span><strong>{organizationName}</strong></div><div className="setting-row"><span>Seu perfil</span><strong>{roleLabels[role as MemberRole] ?? role}</strong></div><div className="setting-row"><span>Proteção</span><strong className="positive">RLS ativo</strong></div><div className="setting-row"><span>Convidar por e-mail</span><span style={{ display: "flex", gap: 6 }}><input className="table-filter" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="email da conta" type="email" /><button className="icon-btn" onClick={() => void invite()} disabled={role === "viewer" || inviteLoading || !email.trim()} aria-label="Enviar convite"><MailPlus size={15} /></button></span></div><p className="muted invite-help">O e-mail é verificado antes do convite ser criado. O usuário poderá aceitar ou recusar no menu de holdings.</p></div>
+      <div className="panel"><div className="panel-heading"><div><h2>Acesso</h2><p>Convites e membros planejados</p></div><Building2 size={17} color="#80e2b0" /></div><div className="setting-row"><span>Organização ativa</span><strong>{organizationName}</strong></div><div className="setting-row"><span>Seu perfil</span><strong>{roleLabels[role as MemberRole] ?? role}</strong></div><div className="setting-row"><span>Proteção</span><strong className="positive">RLS ativo</strong></div><div className="setting-row"><span>Convidar usuário cadastrado</span><span style={{ display: "flex", gap: 6 }}><input className="table-filter" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="e-mail da conta" type="email" /><button className="icon-btn" onClick={() => void invite()} disabled={!canManage || inviteLoading || !email.trim()} aria-label="Enviar convite"><MailPlus size={15} /></button></span></div><p className="muted invite-help">O e-mail é verificado antes do convite. A pessoa aceita ou recusa pelo menu de holdings.</p><div className="setting-row setting-row-stack"><span><strong>Adicionar membro sem acesso</strong><small className="member-email">Cadastre sócio, responsável ou bot antes de ele criar a conta.</small></span><UserRoundPlus size={16} color="#80e2b0" /></div><div className="form-grid compact-form"><label>Nome<input value={placeholderName} onChange={(event) => setPlaceholderName(event.target.value)} placeholder="Nome do sócio" /></label><label>E-mail (opcional)<input type="email" value={placeholderEmail} onChange={(event) => setPlaceholderEmail(event.target.value)} placeholder="e-mail futuro" /></label><label>Função<select value={placeholderRole} onChange={(event) => setPlaceholderRole(event.target.value as MemberRole)}><option value="viewer">Leitor</option><option value="manager">Gestor</option><option value="admin">Administrador</option></select></label><div className="onboarding-actions compact-actions"><span className="muted">Participação igual automática</span><button type="button" className="button button-primary" onClick={() => void createPlaceholder()} disabled={!canManage || placeholderSaving || !placeholderName.trim()}>{placeholderSaving ? "Criando…" : "Criar membro"}</button></div></div></div>
     </div>
+    {deletingMember && <div className="modal-backdrop"><section className="edit-modal"><div className="panel-heading"><div><h2>Remover membro sem acesso</h2><p>O que deseja fazer com as responsabilidades, receitas e despesas de {deletingMember.full_name}?</p></div><button type="button" className="icon-btn" onClick={() => setDeletingMember(null)} aria-label="Fechar"><X size={16} /></button></div><label className="form-grid-label">Atribuir a outro sócio<select className="filter-select full-width" value={replacementId} onChange={(event) => setReplacementId(event.target.value)}><option value="">Não atribuir · Holding</option>{replacementOptions.map((member) => <option key={member.member_id} value={member.member_id}>{member.full_name} · {Number(member.ownership_percentage || 0).toFixed(2).replace(".", ",")}%</option>)}</select></label><p className="muted organization-note">As despesas vinculadas serão transferidas para a pessoa escolhida. A participação será redistribuída entre os membros restantes.</p><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={() => setDeletingMember(null)}>Cancelar</button><button type="button" className="button button-primary" onClick={() => void deletePlaceholder()}>Confirmar remoção</button></div></section></div>}
   </div>;
 }

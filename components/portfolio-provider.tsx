@@ -10,7 +10,10 @@ type PortfolioContextValue = {
   organizationName: string;
   userName: string;
   userInitials: string;
-  holdings: Array<{ id: string; name: string; role: MemberRole }>;
+  userEmail: string;
+  userPhone: string;
+  userAvatarUrl: string;
+  holdings: Array<{ id: string; name: string; role: MemberRole; isPrimary: boolean }>;
   pendingInvitations: PendingInvitation[];
   role: MemberRole;
   buildings: Building[];
@@ -22,6 +25,7 @@ type PortfolioContextValue = {
   error: string;
   refresh: () => Promise<void>;
   switchOrganization: (organizationId: string) => void;
+  setPrimaryOrganization: (organizationId: string) => Promise<{ ok: boolean; message?: string }>;
   acceptInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>;
   declineInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>;
 };
@@ -54,7 +58,7 @@ function mapPendingInvitations(data: unknown): PendingInvitation[] {
 export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("cardoso-active-organization"));
-  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "acceptInvitation" | "declineInvitation">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", holdings: [], pendingInvitations: [], role: "viewer", buildings: [], expenses: [], monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" });
+  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "setPrimaryOrganization" | "acceptInvitation" | "declineInvitation">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", userEmail: "", userPhone: "", userAvatarUrl: "", holdings: [], pendingInvitations: [], role: "viewer", buildings: [], expenses: [], monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" });
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -70,27 +74,31 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     setValue((current) => ({ ...current, loading: true, error: "" }));
     const invitationsResult = await supabase.rpc("list_my_invitations");
     const pendingInvitations = invitationsResult.error ? [] : mapPendingInvitations(invitationsResult.data);
-    const membershipsResult = await supabase.from("organization_members").select("organization_id, role, joined_at").eq("user_id", session.user.id).order("joined_at", { ascending: true });
+    const membershipsResult = await supabase.from("organization_members").select("organization_id, role, joined_at, is_primary").eq("user_id", session.user.id).order("joined_at", { ascending: true });
     if (membershipsResult.error) { setValue((current) => ({ ...current, loading: false, error: membershipsResult.error.message })); return; }
+    const profile = await supabase.from("profiles").select("full_name, phone, avatar_url").eq("id", session.user.id).maybeSingle();
+    const profileName = profile.data?.full_name ? String(profile.data.full_name) : undefined;
+    const profilePhone = profile.data?.phone ? String(profile.data.phone) : "";
+    const profileAvatar = profile.data?.avatar_url ? String(profile.data.avatar_url) : "";
+    const profileEmail = session.user.email ?? "";
     const memberRows = (membershipsResult.data ?? []) as Array<Record<string, unknown>>;
     const memberOrganizationIds = memberRows.map((row) => String(row.organization_id));
-    if (!memberOrganizationIds.length) { setValue((current) => ({ ...current, organizationId: null, holdings: [], pendingInvitations, buildings: [], expenses: [], monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false })); return; }
+    if (!memberOrganizationIds.length) { setValue((current) => ({ ...current, organizationId: null, userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings: [], pendingInvitations, buildings: [], expenses: [], monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false })); return; }
     const organizationsResult = await supabase.from("organizations").select("id, name").in("id", memberOrganizationIds);
     if (organizationsResult.error) { setValue((current) => ({ ...current, loading: false, error: organizationsResult.error.message })); return; }
     const organizationNames = new Map((organizationsResult.data ?? []).map((organization) => [String(organization.id), String(organization.name)]));
-    const holdings = memberRows.map((row) => ({ id: String(row.organization_id), name: organizationNames.get(String(row.organization_id)) ?? "Holding", role: roleMap[String(row.role)] ?? "viewer" }));
-    const selectedMembership = holdings.find((holding) => holding.id === activeOrganizationId) ?? holdings[0];
+    const holdings = memberRows.map((row) => ({ id: String(row.organization_id), name: organizationNames.get(String(row.organization_id)) ?? "Holding", role: roleMap[String(row.role)] ?? "viewer", isPrimary: Boolean(row.is_primary) }));
+    const selectedMembership = holdings.find((holding) => holding.id === activeOrganizationId) ?? holdings.find((holding) => holding.isPrimary) ?? holdings[0];
     const organizationId = selectedMembership.id;
     if (organizationId !== activeOrganizationId) { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }
     const organization = await supabase.from("organizations").select("name").eq("id", organizationId).single();
-    const profile = await supabase.from("profiles").select("full_name").eq("id", session.user.id).maybeSingle();
     const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, notificationsResult] = await Promise.all([
       supabase.from("assets").select("id, name, current_value, status, source_key").eq("organization_id", organizationId),
-      supabase.from("buildings").select("id, asset_id, city, state, total_units, current_value, status, source_key, notes").eq("organization_id", organizationId),
+      supabase.from("buildings").select("id, asset_id, address, city, state, postal_code, description, total_units, acquisition_date, acquisition_value, current_value, last_valuation_date, status, source_key, notes").eq("organization_id", organizationId),
       supabase.from("property_units").select("id, building_id, code, unit_type, potential_rent, status, quantity, notes, updated_at").eq("organization_id", organizationId).order("code"),
       supabase.from("leases").select("id, unit_id, tenant_id, start_date, end_date, current_rent, next_adjustment, adjustment_frequency, adjustment_index, contract_document_url, notes, status").eq("organization_id", organizationId).in("status", ["active", "ending", "draft"]),
       supabase.from("tenants").select("id, name").eq("organization_id", organizationId),
-      supabase.from("expenses").select("id, description, category, value, expense_date, competence, expense_kind, responsible, responsible_user_id, building_id").eq("organization_id", organizationId).order("expense_date", { ascending: false }),
+      supabase.from("expenses").select("id, description, category, value, expense_date, competence, expense_kind, responsible, responsible_user_id, responsible_contact_id, building_id").eq("organization_id", organizationId).order("expense_date", { ascending: false }),
       supabase.from("notifications").select("id, type, title, message, due_date, status, entity_id").eq("organization_id", organizationId).eq("status", "pending").order("due_date", { ascending: true }).limit(20),
     ]);
     const firstError = [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, notificationsResult].find((result) => result.error)?.error;
@@ -117,17 +125,17 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       list.push({ id: String(row.id), code: String(row.code), type: String(row.unit_type ?? "Unidade"), area: 0, status, rent, tenant: lease?.tenantName, tenantName: lease?.tenantName, quantity: Number(row.quantity ?? 1), nextDue: lease?.nextAdjustmentDate, lease });
       unitsByBuilding.set(String(row.building_id), list);
     }
+    const buildingStatusMap: Record<string, Building["status"]> = { active: "ativo", renovation: "reforma", for_sale: "venda", sold: "vendido", inactive: "inativo" };
     const mappedBuildings: Building[] = buildings.map((row) => {
       const list = unitsByBuilding.get(String(row.id)) ?? [];
       const asset = assets.find((item) => String(item.id) === String(row.asset_id));
       const unitsTotal = list.reduce((sum, unit) => sum + (unit.quantity ?? 1), 0) || Number(row.total_units ?? 0);
       const occupied = list.reduce((sum, unit) => sum + (unit.status === "alugado" || unit.status === "venda_alugado" || unit.rent > 0 ? unit.quantity ?? 1 : 0), 0);
-      return { id: String(row.source_key ?? row.id), dbId: String(row.id), assetId: asset?.id ? String(asset.id) : undefined, sourceKey: row.source_key ? String(row.source_key) : undefined, name: String(asset?.name ?? "Prédio"), city: String(row.city ?? ""), state: String(row.state ?? ""), value: Number(row.current_value ?? asset?.current_value ?? 0), units: unitsTotal, occupied, revenue: list.reduce((sum, unit) => sum + unit.rent, 0), expenses: 0, status: row.status === "for_sale" ? "venda" : "ativo", image: `db-${row.id}`, unitsData: list, sourceRows: list.length };
+      return { id: String(row.source_key ?? row.id), dbId: String(row.id), assetId: asset?.id ? String(asset.id) : undefined, sourceKey: row.source_key ? String(row.source_key) : undefined, name: String(asset?.name ?? "Prédio"), address: String(row.address ?? ""), city: String(row.city ?? ""), state: String(row.state ?? ""), postalCode: row.postal_code ? String(row.postal_code) : undefined, description: String(row.description ?? ""), acquisitionDate: row.acquisition_date ? String(row.acquisition_date) : undefined, acquisitionValue: Number(row.acquisition_value ?? 0), lastValuationDate: row.last_valuation_date ? String(row.last_valuation_date) : undefined, notes: String(row.notes ?? ""), value: Number(row.current_value ?? asset?.current_value ?? 0), units: unitsTotal, occupied, revenue: list.reduce((sum, unit) => sum + unit.rent, 0), expenses: 0, status: buildingStatusMap[String(row.status)] ?? "ativo", image: `db-${row.id}`, unitsData: list, sourceRows: list.length };
     });
-    const profileName = profile.data?.full_name ? String(profile.data.full_name) : undefined;
     const monthlyExpenses = expenses.filter((expense) => expense.expense_kind !== "one_time").reduce((total, expense) => total + Number(expense.value || 0), 0);
     const monthlyProfit = mappedBuildings.reduce((total, building) => total + building.revenue, 0) - monthlyExpenses;
-    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), holdings, pendingInvitations, role: selectedMembership.role, buildings: mappedBuildings, expenses, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
+    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: selectedMembership.role, buildings: mappedBuildings, expenses, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
   }, [activeOrganizationId, session]);
 
   useEffect(() => { if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], buildings: [], expenses: [], monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session]);
@@ -142,6 +150,16 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     return () => window.clearInterval(interval);
   }, [session]);
   const switchOrganization = useCallback((organizationId: string) => { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }, []);
+  const setPrimaryOrganization = useCallback(async (organizationId: string) => {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return { ok: false, message: "Supabase não configurado." };
+    const result = await supabase.rpc("set_primary_organization", { target_org: organizationId });
+    if (result.error) return { ok: false, message: result.error.message };
+    setActiveOrganizationId(organizationId);
+    window.localStorage.setItem("cardoso-active-organization", organizationId);
+    await refresh();
+    return { ok: true };
+  }, [refresh]);
   const acceptInvitation = useCallback(async (invitationId: string) => {
     const supabase = createSupabaseBrowserClient();
     if (!supabase) return { ok: false, message: "Supabase não configurado." };
@@ -160,7 +178,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     await refresh();
     return { ok: true };
   }, [refresh]);
-  const context = useMemo(() => ({ ...value, refresh, switchOrganization, acceptInvitation, declineInvitation }), [acceptInvitation, declineInvitation, refresh, switchOrganization, value]);
+  const context = useMemo(() => ({ ...value, refresh, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation }), [acceptInvitation, declineInvitation, refresh, setPrimaryOrganization, switchOrganization, value]);
   return <PortfolioContext.Provider value={context}>{children}</PortfolioContext.Provider>;
 }
 

@@ -8,7 +8,7 @@ import { brl } from "@/lib/format";
 
 export default function FinanceiroPage() {
   const { buildings, loading, organizationId, monthlyExpenses, monthlyProfit } = usePortfolio();
-  const units = buildings.flatMap((building) => (building.unitsData ?? []).map((unit) => ({ ...unit, building })));
+  const units = buildings.filter((building) => building.status !== "vendido").flatMap((building) => (building.unitsData ?? []).map((unit) => ({ ...unit, building })));
   const rentalUnits = units.filter((unit) => unit.rent > 0);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("name_asc");
