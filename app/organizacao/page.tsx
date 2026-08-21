@@ -104,7 +104,7 @@ export default function OrganizationPage() {
     const user = (await supabase.auth.getUser()).data.user;
     const result = await supabase.rpc("create_organization", { org_name: name, org_type: "company", org_description: "Holding criada pelo usuário", org_currency: "BRL" });
     if (result.error) { setMessage(result.error.message); return; }
-    if (user?.email?.toLowerCase() === "paulocardosopub@gmail.com") await syncInitialPortfolio(result.data);
+    if (user?.email?.toLowerCase() === "paulocardosopub@gmail.com" && name.toLowerCase() === "cardoso") await syncInitialPortfolio(result.data);
     setHoldingName("");
     setMessage(`Holding “${name}” criada.`);
     await refresh();

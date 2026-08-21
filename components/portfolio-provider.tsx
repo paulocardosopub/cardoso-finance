@@ -27,7 +27,7 @@ type PendingInvitation = { id: string; organizationId: string; organizationName:
 
 const PortfolioContext = createContext<PortfolioContextValue | null>(null);
 
-const statusMap: Record<string, PropertyUnit["status"]> = { rented: "alugado", vacant: "vago", maintenance: "manutencao", negotiation: "negociacao", for_sale: "venda", sold: "vendido" };
+const statusMap: Record<string, PropertyUnit["status"]> = { rented: "alugado", vacant: "vago", maintenance: "manutencao", service: "servico", negotiation: "negociacao", for_sale: "venda", sold: "vendido" };
 const roleMap: Record<string, MemberRole> = { owner: "owner", admin: "admin", manager: "manager", viewer: "viewer" };
 
 function displayName(session: Session | null, profileName?: string) {
@@ -113,8 +113,8 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       const list = unitsByBuilding.get(String(row.id)) ?? [];
       const asset = assets.find((item) => String(item.id) === String(row.asset_id));
       const unitsTotal = list.reduce((sum, unit) => sum + (unit.quantity ?? 1), 0) || Number(row.total_units ?? 0);
-      const occupied = list.reduce((sum, unit) => sum + (unit.status === "alugado" ? unit.quantity ?? 1 : 0), 0);
-      return { id: String(row.source_key ?? row.id), dbId: String(row.id), sourceKey: row.source_key ? String(row.source_key) : undefined, name: String(asset?.name ?? "Prédio"), city: String(row.city ?? ""), state: String(row.state ?? ""), value: Number(row.current_value ?? asset?.current_value ?? 0), units: unitsTotal, occupied, revenue: list.reduce((sum, unit) => sum + unit.rent, 0), expenses: 0, status: row.status === "for_sale" ? "venda" : "ativo", image: `db-${row.id}`, unitsData: list, sourceRows: list.length };
+      const occupied = list.reduce((sum, unit) => sum + (unit.status === "alugado" || unit.status === "venda_alugado" || unit.rent > 0 ? unit.quantity ?? 1 : 0), 0);
+      return { id: String(row.source_key ?? row.id), dbId: String(row.id), assetId: asset?.id ? String(asset.id) : undefined, sourceKey: row.source_key ? String(row.source_key) : undefined, name: String(asset?.name ?? "Prédio"), city: String(row.city ?? ""), state: String(row.state ?? ""), value: Number(row.current_value ?? asset?.current_value ?? 0), units: unitsTotal, occupied, revenue: list.reduce((sum, unit) => sum + unit.rent, 0), expenses: 0, status: row.status === "for_sale" ? "venda" : "ativo", image: `db-${row.id}`, unitsData: list, sourceRows: list.length };
     });
     const profileName = profile.data?.full_name ? String(profile.data.full_name) : undefined;
     setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), holdings, pendingInvitations, role: selectedMembership.role, buildings: mappedBuildings, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });

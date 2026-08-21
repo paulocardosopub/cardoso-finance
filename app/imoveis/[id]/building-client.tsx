@@ -9,8 +9,8 @@ import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { brl, compactBrl } from "@/lib/format";
 import type { PropertyUnit, UnitStatus } from "@/types/domain";
 
-const labels: Record<string, string> = { alugado: "Alugado", vago: "Vago", venda: "À venda", manutencao: "Manutenção", negociacao: "Negociação", vendido: "Vendido" };
-const dbStatus: Record<UnitStatus, string> = { alugado: "rented", vago: "vacant", manutencao: "maintenance", negociacao: "negotiation", venda: "for_sale", vendido: "sold" };
+const labels: Record<string, string> = { alugado: "Alugado", vago: "Vago", venda: "À venda", venda_alugado: "À venda e alugado", manutencao: "Manutenção", servico: "Serviço", negociacao: "Negociação", vendido: "Vendido" };
+const dbStatus: Record<UnitStatus, string> = { alugado: "rented", vago: "vacant", manutencao: "maintenance", servico: "service", negociacao: "negotiation", venda: "for_sale", venda_alugado: "for_sale", vendido: "sold" };
 type DocumentRow = { id: string; name: string; category: string; storage_path: string; mime_type?: string; is_primary?: boolean; signedUrl?: string };
 
 export default function BuildingDetailClient() {
@@ -20,6 +20,8 @@ export default function BuildingDetailClient() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("todos");
   const [editing, setEditing] = useState<PropertyUnit | null>(null);
+  const [editingBuildingName, setEditingBuildingName] = useState(false);
+  const [buildingNameValue, setBuildingNameValue] = useState("");
   const [filesUnit, setFilesUnit] = useState<PropertyUnit | null>(null);
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [primaryPhotos, setPrimaryPhotos] = useState<Record<string, string>>({});
@@ -30,7 +32,8 @@ export default function BuildingDetailClient() {
     const matches = `${unit.code} ${unit.type} ${unit.tenantName ?? ""}`.toLowerCase().includes(query.toLowerCase());
     const upcomingEnd = Boolean(unit.lease?.endDate && new Date(unit.lease.endDate).getTime() <= Date.now() + 90 * 86400000);
     const upcomingAdjustment = Boolean(unit.lease?.nextAdjustmentDate && new Date(unit.lease.nextAdjustmentDate).getTime() <= Date.now() + 60 * 86400000);
-    const filterMatch = filter === "todos" || (filter === "alugados" && unit.status === "alugado") || (filter === "vagos" && unit.status === "vago") || (filter === "contratos" && upcomingEnd) || (filter === "reajustes" && upcomingAdjustment) || (filter === "venda" && unit.status === "venda");
+    const isRented = unit.status === "alugado" || unit.status === "venda_alugado" || unit.rent > 0;
+    const filterMatch = filter === "todos" || (filter === "alugados" && isRented) || (filter === "vagos" && !isRented && unit.status === "vago") || (filter === "contratos" && upcomingEnd) || (filter === "reajustes" && upcomingAdjustment) || (filter === "venda" && (unit.status === "venda" || unit.status === "venda_alugado"));
     return matches && filterMatch;
   }), [building, filter, query]);
 
@@ -56,6 +59,26 @@ export default function BuildingDetailClient() {
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando unidade...</p></div></div>;
   if (!building || !organizationId) return <div className="content"><div className="empty-state"><h3>Imóvel não encontrado</h3><Link href="/imoveis" className="button button-primary">Voltar</Link></div></div>;
   const occupancy = building.units ? Math.round((building.occupied / building.units) * 100) : 0;
+
+  async function saveBuildingName(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextName = buildingNameValue.trim();
+    const assetId = building?.assetId;
+    if (!nextName || !assetId || role === "viewer") {
+      setMessage(role === "viewer" ? "Seu perfil não pode editar este imóvel." : "Informe um nome válido para o imóvel.");
+      return;
+    }
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    const result = await supabase.from("assets").update({ name: nextName }).eq("id", assetId).eq("organization_id", organizationId);
+    if (result.error) {
+      setMessage(result.error.message);
+      return;
+    }
+    setEditingBuildingName(false);
+    setMessage("Nome principal do imóvel atualizado.");
+    await refresh();
+  }
 
   async function openFiles(unit: PropertyUnit) {
     const supabase = createSupabaseBrowserClient();
@@ -157,7 +180,7 @@ export default function BuildingDetailClient() {
     }
     const tenantName = String(form.get("tenant") ?? "").trim();
     const existingLease = await supabase.from("leases").select("id, current_rent").eq("organization_id", organizationId).eq("unit_id", editing.id).in("status", ["active", "ending", "draft"]).maybeSingle();
-    if (status === "alugado" && tenantName) {
+    if ((status === "alugado" || status === "venda_alugado") && tenantName) {
       let tenant = await supabase.from("tenants").select("id").eq("organization_id", organizationId).eq("name", tenantName).maybeSingle();
       if (!tenant.data) tenant = await supabase.from("tenants").insert({ organization_id: organizationId, name: tenantName }).select("id").single();
       if (tenant.error || !tenant.data) {
@@ -171,7 +194,7 @@ export default function BuildingDetailClient() {
         setMessage(leaseResult.error.message);
         return;
       }
-    } else if (existingLease.data) {
+    } else if (existingLease.data && status !== "venda_alugado") {
       const terminated = await supabase.from("leases").update({ status: "terminated" }).eq("id", existingLease.data.id).eq("organization_id", organizationId);
       if (terminated.error) {
         setMessage(terminated.error.message);
@@ -186,13 +209,14 @@ export default function BuildingDetailClient() {
 
   return <div className="content">
     <Link href="/imoveis" className="breadcrumb" style={{ marginBottom: 25, display: "inline-flex" }}><ArrowLeft size={13} /> Imóveis</Link>
-    <div className="page-heading"><div><div className="eyebrow"><Building2 size={13} /> {building.status}</div><h1>{building.name}</h1><p className="subtitle"><MapPin size={12} style={{ verticalAlign: "-2px" }} /> {building.city}, {building.state} · {building.units} unidades</p></div></div>
+    <div className="page-heading"><div><div className="eyebrow"><Building2 size={13} /> {building.status}</div><h1>{building.name}</h1><p className="subtitle"><MapPin size={12} style={{ verticalAlign: "-2px" }} /> {building.city}, {building.state} · {building.units} unidades</p></div><button className="button button-ghost" onClick={() => { setBuildingNameValue(building.name); setEditingBuildingName(true); }} disabled={role === "viewer"}><Edit3 size={14} /> Editar imóvel</button></div>
     <div className="panel"><div className="panel-heading"><div><h2>Resumo do ativo</h2><p>Dados sincronizados · patrimônio baseado somente em AVALIAÇÃO.</p></div></div><div className="metrics"><div className="metric-card"><div className="metric-top"><span>Valor patrimonial</span></div><div className="metric-value">{compactBrl(building.value)}</div></div><div className="metric-card"><div className="metric-top"><span>Ocupação</span></div><div className="metric-value">{occupancy}%</div></div><div className="metric-card"><div className="metric-top"><span>Receita mensal</span></div><div className="metric-value">{compactBrl(building.revenue)}</div></div></div></div>
     <div className="panel section-gap"><div className="panel-heading"><div><h2>Unidades e contratos</h2><p>{units.length} resultados · fotos, arquivos e edição rápida disponíveis.</p></div><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input className="table-filter" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar unidade, tipo ou inquilino" /><select className="filter-select" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="todos">Todos</option><option value="alugados">Alugados</option><option value="vagos">Vagos</option><option value="contratos">Contratos vencendo</option><option value="reajustes">Reajustes próximos</option><option value="venda">À venda</option></select></div></div>
       {message && <p className="form-success"><Check size={13} /> {message}</p>}
-      <div className="table-wrap"><table><thead><tr><th>Foto</th><th>Unidade</th><th>Tipo</th><th>Inquilino</th><th>Status</th><th>Aluguel mensal</th><th>Início</th><th>Fim</th><th>Próximo reajuste</th><th>Ações</th></tr></thead><tbody>{units.map((unit) => <tr key={unit.id}><td><div className="unit-photo-thumb">{primaryPhotos[unit.id] ? <img src={primaryPhotos[unit.id]} alt={`Foto principal de ${unit.code}`} /> : <ImageIcon size={18} />}</div></td><td><strong>{unit.code}</strong><small><Ruler size={11} /> Qtd. {unit.quantity ?? 1}</small></td><td>{unit.type}</td><td>{unit.tenantName ?? "Não cadastrado"}</td><td><span className={`status status-${unit.status === "venda" ? "vago" : unit.status}`}>{labels[unit.status]}</span></td><td><strong>{unit.rent ? brl(unit.rent) : "—"}</strong></td><td>{unit.lease?.startDate ?? "—"}</td><td>{unit.lease?.endDate ?? "—"}</td><td>{unit.lease?.nextAdjustmentDate ?? "—"}</td><td><button className="icon-btn" aria-label={`Fotos e arquivos de ${unit.code}`} onClick={() => void openFiles(unit)}><Paperclip size={14} /></button><button className="icon-btn" aria-label={`Editar ${unit.code}`} onClick={() => setEditing(unit)}><Edit3 size={14} /></button></td></tr>)}</tbody></table></div>
+      <div className="table-wrap"><table><thead><tr><th>Foto</th><th>Unidade</th><th>Tipo</th><th>Inquilino</th><th>Status</th><th>Aluguel mensal</th><th>Início</th><th>Fim</th><th>Próximo reajuste</th><th>Ações</th></tr></thead><tbody>{units.map((unit) => { const isRented = unit.status === "alugado" || unit.status === "venda_alugado" || unit.rent > 0; const statusLabel = unit.status === "venda_alugado" || (unit.status === "venda" && isRented) ? labels.venda_alugado : labels[unit.status]; return <tr key={unit.id}><td><div className="unit-photo-thumb">{primaryPhotos[unit.id] ? <img src={primaryPhotos[unit.id]} alt={`Foto principal de ${unit.code}`} /> : <ImageIcon size={18} />}</div></td><td><strong>{unit.code}</strong><small><Ruler size={11} /> Qtd. {unit.quantity ?? 1}</small></td><td>{unit.type}</td><td>{unit.tenantName ?? "Não cadastrado"}</td><td><span className={`status status-${unit.status === "venda" || unit.status === "venda_alugado" ? "vago" : unit.status}`}>{statusLabel}</span></td><td><strong>{unit.rent ? brl(unit.rent) : "—"}</strong></td><td>{unit.lease?.startDate ?? "—"}</td><td>{unit.lease?.endDate ?? "—"}</td><td>{unit.lease?.nextAdjustmentDate ?? "—"}</td><td><button className="icon-btn" aria-label={`Fotos e arquivos de ${unit.code}`} onClick={() => void openFiles(unit)}><Paperclip size={14} /></button><button className="icon-btn" aria-label={`Editar ${unit.code}`} onClick={() => setEditing(unit)}><Edit3 size={14} /></button></td></tr>; })}</tbody></table></div>
     </div>
     {filesUnit && <div className="modal-backdrop"><section className="edit-modal"><div className="panel-heading"><div><h2>Fotos e arquivos · {filesUnit.code}</h2><p>Envie várias fotos e escolha qual será exibida como principal.</p></div><button className="icon-btn" onClick={() => setFilesUnit(null)} aria-label="Fechar arquivos"><X size={16} /></button></div><div className="upload-grid"><label className="upload-card"><ImageIcon size={22} /><strong>Enviar fotos</strong><small>Selecione uma ou várias · JPG, PNG ou WebP</small><input type="file" accept="image/*" multiple onChange={(event) => void uploadDocuments(event, "photo")} /></label><label className="upload-card"><FileUp size={22} /><strong>Enviar contrato</strong><small>PDF ou documento</small><input type="file" accept="application/pdf,.doc,.docx,image/*" onChange={(event) => void uploadDocuments(event, "contract")} /></label></div>{fileLoading && <p className="muted">Enviando ou carregando arquivos...</p>}<div className="document-list">{documents.length ? documents.map((doc) => <div key={doc.id} className="document-item">{doc.signedUrl ? <a href={doc.signedUrl} target="_blank" rel="noreferrer" className="document-link">{doc.category === "photo" ? <img className="document-thumb" src={doc.signedUrl} alt={doc.name} /> : <FileUp size={15} />}<span>{doc.name}</span></a> : <span className="document-link">{doc.category === "photo" ? <ImageIcon size={15} /> : <FileUp size={15} />}<span>{doc.name}</span></span>}<div className="document-actions">{doc.category === "photo" && (doc.is_primary ? <span className="primary-badge"><Star size={12} /> Principal</span> : <button type="button" className="button button-ghost button-small" onClick={() => void setPrimaryPhoto(doc)}><Star size={12} /> Usar como principal</button>)}{doc.signedUrl && <a href={doc.signedUrl} target="_blank" rel="noreferrer" className="icon-btn" aria-label={`Abrir ${doc.name}`}><ExternalLink size={14} /></a>}</div></div>) : <p className="muted">Nenhum arquivo enviado ainda.</p>}</div></section></div>}
+    {editingBuildingName && <div className="modal-backdrop"><form className="edit-modal" onSubmit={saveBuildingName}><div className="panel-heading"><div><h2>Editar imóvel</h2><p>Altere o nome principal exibido nas listas, no patrimônio e no dashboard.</p></div><button type="button" className="icon-btn" onClick={() => setEditingBuildingName(false)} aria-label="Fechar edição"><X size={16} /></button></div><div className="form-grid"><label className="form-grid-wide">Nome principal<input name="buildingName" value={buildingNameValue} onChange={(event) => setBuildingNameValue(event.target.value)} required /></label></div><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={() => setEditingBuildingName(false)}>Cancelar</button><button type="submit" className="button button-primary"><Save size={14} /> Salvar nome</button></div></form></div>}
     {editing && <div className="modal-backdrop"><form className="edit-modal" onSubmit={saveUnit}><div className="panel-heading"><div><h2>Editar {editing.code}</h2><p>Unidade, inquilino e dados do contrato.</p></div><button type="button" className="icon-btn" onClick={() => setEditing(null)}><X size={16} /></button></div><div className="form-grid"><label>Unidade<input name="code" defaultValue={editing.code} required /></label><label>Tipo<input name="type" defaultValue={editing.type} required /></label><label>Status<select name="status" defaultValue={editing.status}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Aluguel mensal<input name="rent" type="number" min="0" step="0.01" defaultValue={editing.rent} /></label><label>Inquilino<input name="tenant" defaultValue={editing.tenantName ?? ""} placeholder="Nome do inquilino" /></label><label>Início<input name="startDate" type="date" defaultValue={editing.lease?.startDate ?? ""} /></label><label>Fim<input name="endDate" type="date" defaultValue={editing.lease?.endDate ?? ""} /></label><label>Próximo reajuste<input name="nextAdjustment" type="date" defaultValue={editing.lease?.nextAdjustmentDate ?? ""} /></label><label>Índice<input name="adjustmentIndex" defaultValue={editing.lease?.adjustmentIndex ?? ""} placeholder="IPCA, IGP-M..." /></label><label>Frequência<select name="frequency" defaultValue={editing.lease?.adjustmentFrequency ?? "annual"}><option value="annual">Anual</option><option value="semiannual">Semestral</option><option value="monthly">Mensal</option></select></label><label className="form-grid-wide">Link do contrato<input name="contractUrl" type="url" defaultValue={editing.lease?.contractDocumentUrl ?? ""} placeholder="https://..." /></label><label className="form-grid-wide">Observações<textarea name="notes" defaultValue={editing.lease?.notes ?? ""} rows={3} /></label></div><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={() => setEditing(null)}>Cancelar</button><button type="submit" className="button button-primary"><Save size={14} /> Salvar contrato</button></div></form></div>}
   </div>;
 }

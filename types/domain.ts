@@ -1,6 +1,6 @@
 export type OrganizationType = "personal" | "family" | "company";
 export type MemberRole = "owner" | "admin" | "manager" | "viewer";
-export type UnitStatus = "alugado" | "vago" | "manutencao" | "negociacao" | "venda" | "vendido";
+export type UnitStatus = "alugado" | "vago" | "manutencao" | "servico" | "negociacao" | "venda" | "venda_alugado" | "vendido";
 
 export type Organization = {
   id: string;
@@ -14,6 +14,7 @@ export type Organization = {
 export type Building = {
   id: string;
   dbId?: string;
+  assetId?: string;
   name: string;
   city: string;
   state: string;

@@ -8,7 +8,7 @@ import { brl, compactBrl } from "@/lib/format";
 import type { Building } from "@/types/domain";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 
-function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda"); }
+function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda" || unit.status === "venda_alugado"); }
 function isForSale(building: Building) { return building.status === "venda" || saleUnits(building).length > 0; }
 
 export default function ImoveisPage() {

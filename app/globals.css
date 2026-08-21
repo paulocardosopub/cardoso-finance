@@ -177,6 +177,7 @@ td small { display:flex; align-items:center; gap:4px; color:var(--muted); font-s
 .status-alugado { color:var(--accent); background:rgba(128,226,176,.09); }
 .status-vago { color:var(--accent-2); background:rgba(98,182,255,.09); }
 .status-manutencao { color:#ffca7a; background:rgba(255,202,122,.09); }
+.status-servico { color:#9fc6ff; background:rgba(98,182,255,.10); }
 .payment-line, .health-line { display:flex; align-items:center; justify-content:space-between; padding:13px 0; border-bottom:1px solid rgba(176,196,219,.08); font-size:12px; }
 .payment-line:last-child, .health-line:last-child { border-bottom:0; }
 .payment-line small { display:block; color:var(--muted); font-size:10px; margin-top:4px; }
