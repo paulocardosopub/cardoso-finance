@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowUpRight, BellRing, CircleDollarSign, Landmark, MoreHorizontal, Plus, Receipt, TrendingUp } from "lucide-react";
 import { WealthChart } from "@/components/wealth-chart";
+import { PropertyAlbum } from "@/components/property-album";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { brl, compactBrl } from "@/lib/format";
 
@@ -25,6 +26,7 @@ export default function DashboardPage() {
       <div className="panel"><div className="panel-heading"><div><h2>Alertas</h2><p>Contratos e reajustes registrados</p></div><BellRing size={17} color="#80e2b0" /></div><div className="payment-line"><span>Contratos terminando<small>Próximos 90 dias</small></span><strong>{ending}</strong></div><div className="payment-line"><span>Reajustes próximos<small>Próximos 60 dias</small></span><strong>{adjustments}</strong></div><div className="empty-state" style={{ minHeight: 100 }}>{notifications.length ? notifications.slice(0, 3).map((item) => <div key={item.id} className="activity-item" style={{ width: "100%" }}><h3>{item.title}</h3><p>{item.message}</p></div>) : <p>Nenhum contrato com datas cadastradas.</p>}</div></div>
       <div className="panel"><div className="panel-heading"><div><h2>Carteira imobiliária</h2><p>Grupos criados a partir da planilha</p></div><Link href="/imoveis" className="panel-link">Ver todos</Link></div><div className="building-list">{buildings.map((building) => <Link href={`/imoveis/${building.id}`} key={building.id} className="building-row"><div className="building-thumb" /><div className="building-info"><strong>{building.name}</strong><small>{building.city}, {building.state} · {building.units} unidades</small></div><div className="building-value"><strong>{compactBrl(building.value)}</strong><small>{building.units ? Math.round((building.occupied / building.units) * 100) : 0}% ocupado</small></div></Link>)}</div></div>
       <div className="panel"><div className="panel-heading"><div><h2>Atividade recente</h2><p>Movimentações financeiras reais</p></div></div><div className="empty-state"><Receipt size={28} /><h3>Nenhuma atividade registrada</h3><p>A planilha contém imóveis e aluguéis, sem despesas ou histórico de lançamentos.</p></div></div>
+      <PropertyAlbum buildings={buildings} organizationId={organizationId} />
     </section>
   </div>;
 }
