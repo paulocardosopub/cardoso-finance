@@ -28,6 +28,9 @@ button { cursor:pointer; }
 .holding-leave:disabled { color:var(--muted); cursor:not-allowed; }
 .holding-message { padding:7px 8px 3px; color:#ff9b9b; font-size:10px; line-height:1.4; }
 .invite-help { margin-top:12px; font-size:10px; line-height:1.5; }
+.member-email { display:block; color:var(--muted); font-size:10px; margin-top:3px; }
+.member-role-select { min-width:138px; padding:7px 9px; }
+.organization-note { margin-top:14px; font-size:10px; line-height:1.5; }
 .holding-invites { padding-bottom:8px; margin-bottom:6px; border-bottom:1px solid var(--line); }
 .holding-invite { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px; border-radius:8px; background:rgba(98,182,255,.08); }
 .holding-invite strong { display:block; color:var(--text); font-size:11px; }
