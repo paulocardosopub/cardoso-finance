@@ -30,6 +30,9 @@ button { cursor:pointer; }
 .invite-help { margin-top:12px; font-size:10px; line-height:1.5; }
 .member-email { display:block; color:var(--muted); font-size:10px; margin-top:3px; }
 .member-role-select { min-width:138px; padding:7px 9px; }
+.ownership-editor { display:flex; align-items:center; gap:5px; color:var(--muted); font-size:11px; }
+.ownership-input { width:82px; border:1px solid var(--line); border-radius:8px; color:var(--text); background:#151d29; padding:8px 9px; font-size:11px; outline:0; }
+.ownership-input:focus { border-color:rgba(128,226,176,.55); box-shadow:0 0 0 3px rgba(128,226,176,.08); }
 .organization-note { margin-top:14px; font-size:10px; line-height:1.5; }
 .holding-invites { padding-bottom:8px; margin-bottom:6px; border-bottom:1px solid var(--line); }
 .holding-invite { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px; border-radius:8px; background:rgba(98,182,255,.08); }

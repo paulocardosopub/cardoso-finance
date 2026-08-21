@@ -33,6 +33,7 @@ export default function OrganizationPage() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [roleSaving, setRoleSaving] = useState<string | null>(null);
+  const [ownershipSaving, setOwnershipSaving] = useState<string | null>(null);
 
   async function loadMembers() {
     if (!organizationId) return;
@@ -75,6 +76,23 @@ export default function OrganizationPage() {
     setRoleSaving(null);
   }
 
+  async function updateMemberOwnership(member: Member, value: string) {
+    if (!organizationId || !canManage) return;
+    const percentage = Number(value.replace(",", "."));
+    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+      setMessage("A participação deve ficar entre 0% e 100%.");
+      return;
+    }
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    setOwnershipSaving(member.user_id);
+    setMessage("");
+    const result = await supabase.rpc("update_member_ownership", { target_org: organizationId, target_user: member.user_id, new_percentage: percentage });
+    if (result.error) setMessage(result.error.message === "invalid_percentage" ? "A participação deve ficar entre 0% e 100%." : "Não foi possível atualizar a participação.");
+    else { setMessage("Participação atualizada. O restante foi redistribuído para totalizar 100%."); await loadMembers(); await refresh(); }
+    setOwnershipSaving(null);
+  }
+
   async function invite() {
     const normalizedEmail = email.trim().toLowerCase();
     if (!organizationId || !normalizedEmail || role === "viewer") return;
@@ -111,6 +129,7 @@ export default function OrganizationPage() {
   }
 
   const canManage = role === "owner" || role === "admin";
+  const ownershipTotal = members.reduce((total, member) => total + Number(member.ownership_percentage || 0), 0);
 
   return <div className="content">
     <div className="page-heading">
@@ -121,8 +140,8 @@ export default function OrganizationPage() {
     <div className="dashboard-grid">
       <div className="panel">
         <div className="panel-heading"><div><h2>Membros</h2><p>{membersLoading ? "Carregando membros…" : `${members.length} membro(s) com acesso`}</p></div><ShieldCheck size={17} color="#80e2b0" /></div>
-        {members.length ? <div className="table-wrap"><table><thead><tr><th>Usuário</th><th>Função</th><th>Entrada</th></tr></thead><tbody>{members.map((member) => <tr key={member.user_id}><td><strong>{member.full_name || "Usuário autenticado"}</strong><span className="member-email">{member.email}</span></td><td>{member.role === "owner" || !canManage ? <span className="tag">{roleLabels[member.role]}</span> : <select className="filter-select member-role-select" value={member.role} disabled={roleSaving === member.user_id} onChange={(event) => void updateMemberRole(member, event.target.value as MemberRole)}><option value="viewer">Leitor</option><option value="manager">Gestor</option><option value="admin">Administrador</option></select>}</td><td className="muted">{member.joined_at ? new Date(member.joined_at).toLocaleDateString("pt-BR") : "—"}</td></tr>)}</tbody></table></div> : <div className="empty-state"><Users size={30} /><h3>Nenhum membro cadastrado</h3><p>Crie uma organização para começar.</p></div>}
-        <p className="muted organization-note">O proprietário não pode ser removido. Administradores podem ajustar os demais membros entre Leitor, Gestor e Administrador.</p>
+        {members.length ? <div className="table-wrap"><table><thead><tr><th>Usuário</th><th>Função</th><th>Participação</th><th>Entrada</th></tr></thead><tbody>{members.map((member) => <tr key={member.user_id}><td><strong>{member.full_name || "Usuário autenticado"}</strong><span className="member-email">{member.email}</span></td><td>{member.role === "owner" || !canManage ? <span className="tag">{roleLabels[member.role]}</span> : <select className="filter-select member-role-select" value={member.role} disabled={roleSaving === member.user_id} onChange={(event) => void updateMemberRole(member, event.target.value as MemberRole)}><option value="viewer">Leitor</option><option value="manager">Gestor</option><option value="admin">Administrador</option></select>}</td><td>{canManage ? <div className="ownership-editor"><input className="ownership-input" type="number" min="0" max="100" step="0.01" value={member.ownership_percentage} disabled={ownershipSaving === member.user_id} onChange={(event) => void updateMemberOwnership(member, event.target.value)} /><span>%</span></div> : <span className="tag">{Number(member.ownership_percentage || 0).toFixed(2).replace(".", ",")}%</span>}</td><td className="muted">{member.joined_at ? new Date(member.joined_at).toLocaleDateString("pt-BR") : "—"}</td></tr>)}</tbody></table></div> : <div className="empty-state"><Users size={30} /><h3>Nenhum membro cadastrado</h3><p>Crie uma organização para começar.</p></div>}
+        <p className={Math.abs(ownershipTotal - 100) < 0.001 ? "muted organization-note" : "form-error organization-note"}>Participação total: <strong>{ownershipTotal.toFixed(2).replace(".", ",")}%</strong>. {canManage ? "Ao alterar uma pessoa, o restante é redistribuído automaticamente para fechar 100%." : "As porcentagens definem a distribuição de receitas, responsabilidades e lucros."}</p>
       </div>
       <div className="panel"><div className="panel-heading"><div><h2>Acesso</h2><p>Convites e isolamento de dados</p></div><Building2 size={17} color="#80e2b0" /></div><div className="setting-row"><span>Organização ativa</span><strong>{organizationName}</strong></div><div className="setting-row"><span>Seu perfil</span><strong>{roleLabels[role as MemberRole] ?? role}</strong></div><div className="setting-row"><span>Proteção</span><strong className="positive">RLS ativo</strong></div><div className="setting-row"><span>Convidar por e-mail</span><span style={{ display: "flex", gap: 6 }}><input className="table-filter" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="email da conta" type="email" /><button className="icon-btn" onClick={() => void invite()} disabled={role === "viewer" || inviteLoading || !email.trim()} aria-label="Enviar convite"><MailPlus size={15} /></button></span></div><p className="muted invite-help">O e-mail é verificado antes do convite ser criado. O usuário poderá aceitar ou recusar no menu de holdings.</p></div>
     </div>
