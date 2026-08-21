@@ -54,6 +54,7 @@ export type LeaseSummary = {
   nextAdjustmentDate?: string;
   adjustmentFrequency?: string;
   adjustmentIndex?: string;
+  contractDocumentUrl?: string;
   notes?: string;
   status: string;
 };

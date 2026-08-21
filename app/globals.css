@@ -184,6 +184,14 @@ td small { display:flex; align-items:center; gap:4px; color:var(--muted); font-s
 .form-grid label { display:grid; gap:6px; color:var(--muted); font-size:11px; }
 .form-grid-wide { grid-column:1 / -1; }
 .edit-modal .onboarding-actions { margin-top:20px; }
+.upload-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px; }
+.upload-card { min-height:120px; display:grid; place-items:center; align-content:center; gap:6px; border:1px dashed rgba(128,226,176,.35); border-radius:12px; color:var(--accent); background:rgba(128,226,176,.04); text-align:center; cursor:pointer; }
+.upload-card strong { color:var(--text); font-size:12px; }
+.upload-card small { color:var(--muted); font-size:10px; }
+.upload-card input { width:100%; padding:0 12px; color:var(--muted); font-size:10px; }
+.document-list { display:grid; gap:8px; margin-top:14px; }
+.document-item { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 12px; border:1px solid var(--line); border-radius:9px; color:var(--text); font-size:11px; background:rgba(255,255,255,.025); }
+.document-item span { display:flex; align-items:center; gap:8px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width:1050px) { .metrics { grid-template-columns:repeat(2,1fr); } .dashboard-grid { grid-template-columns:1fr; } .wide-grid { grid-column:auto; } }

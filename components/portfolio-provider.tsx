@@ -46,7 +46,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       supabase.from("assets").select("id, name, current_value, status, source_key").eq("organization_id", organizationId),
       supabase.from("buildings").select("id, asset_id, city, state, total_units, current_value, status, source_key, notes").eq("organization_id", organizationId),
       supabase.from("property_units").select("id, building_id, code, unit_type, potential_rent, status, quantity, notes, updated_at").eq("organization_id", organizationId).order("code"),
-      supabase.from("leases").select("id, unit_id, tenant_id, start_date, end_date, current_rent, next_adjustment, adjustment_frequency, adjustment_index, notes, status").eq("organization_id", organizationId).in("status", ["active", "ending", "draft"]),
+      supabase.from("leases").select("id, unit_id, tenant_id, start_date, end_date, current_rent, next_adjustment, adjustment_frequency, adjustment_index, contract_document_url, notes, status").eq("organization_id", organizationId).in("status", ["active", "ending", "draft"]),
       supabase.from("tenants").select("id, name").eq("organization_id", organizationId),
       supabase.from("notifications").select("id, type, title, message, due_date, status, entity_id").eq("organization_id", organizationId).eq("status", "pending").order("due_date", { ascending: true }).limit(20),
     ]);
@@ -61,7 +61,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const leasesByUnit = new Map<string, LeaseSummary>();
     for (const lease of leases) {
       if (!lease.unit_id) continue;
-      leasesByUnit.set(String(lease.unit_id), { id: String(lease.id), tenantId: lease.tenant_id ? String(lease.tenant_id) : undefined, tenantName: lease.tenant_id ? tenantNames.get(String(lease.tenant_id)) : undefined, startDate: lease.start_date ? String(lease.start_date) : undefined, endDate: lease.end_date ? String(lease.end_date) : undefined, currentRent: Number(lease.current_rent ?? 0), nextAdjustmentDate: lease.next_adjustment ? String(lease.next_adjustment) : undefined, adjustmentFrequency: lease.adjustment_frequency ? String(lease.adjustment_frequency) : undefined, adjustmentIndex: lease.adjustment_index ? String(lease.adjustment_index) : undefined, notes: lease.notes ? String(lease.notes) : undefined, status: String(lease.status) });
+      leasesByUnit.set(String(lease.unit_id), { id: String(lease.id), tenantId: lease.tenant_id ? String(lease.tenant_id) : undefined, tenantName: lease.tenant_id ? tenantNames.get(String(lease.tenant_id)) : undefined, startDate: lease.start_date ? String(lease.start_date) : undefined, endDate: lease.end_date ? String(lease.end_date) : undefined, currentRent: Number(lease.current_rent ?? 0), nextAdjustmentDate: lease.next_adjustment ? String(lease.next_adjustment) : undefined, adjustmentFrequency: lease.adjustment_frequency ? String(lease.adjustment_frequency) : undefined, adjustmentIndex: lease.adjustment_index ? String(lease.adjustment_index) : undefined, contractDocumentUrl: lease.contract_document_url ? String(lease.contract_document_url) : undefined, notes: lease.notes ? String(lease.notes) : undefined, status: String(lease.status) });
     }
     const unitsByBuilding = new Map<string, PropertyUnit[]>();
     for (const row of units) {
