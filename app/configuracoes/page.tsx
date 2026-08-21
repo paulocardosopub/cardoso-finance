@@ -43,9 +43,17 @@ export default function ConfiguracoesPage() {
       if (upload.error) { setMessage(`Não foi possível enviar a foto: ${upload.error.message}`); setSaving(false); return; }
       avatarUrl = supabase.storage.from("profile-avatars").getPublicUrl(path).data.publicUrl;
     }
-    const result = await supabase.from("profiles").update({ full_name: name.trim(), phone: phone.trim(), avatar_url: avatarUrl }).eq("id", user.id);
+    const profile = { id: user.id, full_name: name.trim(), phone: phone.trim(), avatar_url: avatarUrl };
+    const result = await supabase.from("profiles").upsert(profile, { onConflict: "id" });
     if (result.error) setMessage(result.error.message);
-    else { setMessage("Perfil atualizado com sucesso."); setAvatarFile(null); setAvatarPreview(null); setRemoveAvatar(false); await refresh(); }
+    else {
+      // Keep the auth metadata in sync as a fallback for screens that read the
+      // user directly instead of joining the profiles table.
+      const authUpdate = await supabase.auth.updateUser({ data: { full_name: name.trim(), phone: phone.trim() } });
+      if (authUpdate.error) setMessage(`Perfil salvo, mas não foi possível sincronizar o nome de acesso: ${authUpdate.error.message}`);
+      else setMessage("Perfil atualizado com sucesso.");
+      setAvatarFile(null); setAvatarPreview(null); setRemoveAvatar(false); await refresh();
+    }
     setSaving(false);
   }
 
