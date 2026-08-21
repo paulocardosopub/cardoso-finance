@@ -7,7 +7,7 @@ import { PropertyAlbum } from "@/components/property-album";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { brl, compactBrl } from "@/lib/format";
 import type { Building } from "@/types/domain";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda"); }
 function isForSale(building: Building) { return building.status === "venda" || saleUnits(building).length > 0; }
@@ -26,7 +26,8 @@ const welcomeMessages = [
 
 export default function DashboardPage() {
   const { buildings, notifications, loading, organizationId, userName } = usePortfolio();
-  const [welcomeIndex] = useState(() => Math.floor(Math.random() * welcomeMessages.length));
+  const [welcomeIndex, setWelcomeIndex] = useState(0);
+  useEffect(() => { setWelcomeIndex(Math.floor(Math.random() * welcomeMessages.length)); }, []);
   const totalValue = buildings.reduce((total, building) => total + building.value, 0);
   const totalRevenue = buildings.reduce((total, building) => total + building.revenue, 0);
   const occupied = buildings.reduce((total, building) => total + building.occupied, 0);
