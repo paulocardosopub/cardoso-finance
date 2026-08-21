@@ -7,12 +7,26 @@ import { PropertyAlbum } from "@/components/property-album";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { brl, compactBrl } from "@/lib/format";
 import type { Building } from "@/types/domain";
+import { useState } from "react";
 
 function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda"); }
 function isForSale(building: Building) { return building.status === "venda" || saleUnits(building).length > 0; }
+const welcomeMessages = [
+  "Bem-vindo de volta, {name}!",
+  "Bom te ver por aqui, {name}!",
+  "Que bom ter você de volta, {name}!",
+  "Tudo pronto para hoje, {name}?",
+  "Vamos cuidar da sua carteira, {name}?",
+  "Sua visão financeira está esperando por você, {name}.",
+  "Olá, {name}! Vamos acompanhar seus imóveis?",
+  "Mais um passo para organizar seu patrimônio, {name}.",
+  "Seja bem-vindo, {name}! Aqui está sua carteira.",
+  "Pronto para uma nova visão da sua carteira, {name}?",
+];
 
 export default function DashboardPage() {
-  const { buildings, notifications, loading, organizationId } = usePortfolio();
+  const { buildings, notifications, loading, organizationId, userName } = usePortfolio();
+  const [welcomeIndex] = useState(() => Math.floor(Math.random() * welcomeMessages.length));
   const totalValue = buildings.reduce((total, building) => total + building.value, 0);
   const totalRevenue = buildings.reduce((total, building) => total + building.revenue, 0);
   const occupied = buildings.reduce((total, building) => total + building.occupied, 0);
@@ -24,7 +38,7 @@ export default function DashboardPage() {
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando sua carteira...</p></div></div>;
   if (!organizationId) return <div className="content"><div className="empty-state"><Landmark size={30} /><h3>Crie sua primeira organização</h3><p>Depois da criação, os 62 registros válidos da planilha serão importados no Supabase.</p><Link href="/onboarding" className="button button-primary"><Plus size={15} /> Começar</Link></div></div>;
   return <div className="content">
-    <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Carteira sincronizada</div><h1>Visão geral da carteira.</h1><p className="subtitle">Dados reais da sua organização, com patrimônio baseado exclusivamente em AVALIAÇÃO.</p></div><Link href="/imoveis" className="button button-primary"><Plus size={15} /><span>Gerenciar imóveis</span></Link></div>
+    <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Carteira sincronizada</div><h1>{welcomeMessages[welcomeIndex].replace("{name}", userName)}</h1><p className="subtitle">Dados reais da sua organização, com patrimônio baseado exclusivamente em AVALIAÇÃO.</p></div><Link href="/imoveis" className="button button-primary"><Plus size={15} /><span>Gerenciar imóveis</span></Link></div>
     <section className="metrics"><Metric icon={<CircleDollarSign size={15} />} label="Patrimônio imobiliário" value={compactBrl(totalValue)} foot={`${buildings.length} prédios organizados`} positive /><Metric icon={<ArrowUpRight size={15} />} label="Aluguéis mensais" value={brl(totalRevenue)} foot="Somente aluguéis informados" positive /><Metric icon={<Receipt size={15} />} label="Despesas cadastradas" value={brl(0)} foot="Nenhuma cadastrada" /><Metric icon={<Landmark size={15} />} label="Ocupação" value={`${occupancy}%`} foot={`${occupied} de ${units} unidades`} positive /></section>
     <section className="dashboard-grid">
       <div className="panel"><div className="panel-heading"><div><h2>Patrimônio por grupo</h2><p>Valores atuais gravados no banco</p></div><button className="icon-btn" aria-label="Mais opções"><MoreHorizontal size={17} /></button></div><div className="legend"><span><i /> Avaliação</span></div><WealthChart buildings={buildings} /></div>

@@ -13,7 +13,20 @@ button { cursor:pointer; }
 .brand-mark { width:35px; height:35px; border-radius:11px; background:linear-gradient(135deg,#9af0c4,#56aef7); color:#061018; display:grid; place-items:center; font-family:'Space Grotesk'; font-weight:700; font-size:18px; box-shadow:0 8px 30px rgba(92,195,166,.18); }
 .brand-name { font-family:'Space Grotesk'; font-weight:600; letter-spacing:-.03em; font-size:16px; }
 .brand-name span { color:var(--accent); }
-.org-switcher { margin:0 6px 25px; padding:12px; border:1px solid var(--line); border-radius:14px; background:rgba(23,30,43,.68); display:flex; align-items:center; gap:9px; }
+.org-switcher-shell { position:relative; margin:0 6px 25px; }
+.org-switcher { width:100%; margin:0; padding:12px; border:1px solid var(--line); border-radius:14px; color:var(--text); background:rgba(23,30,43,.68); display:flex; align-items:center; gap:9px; text-align:left; }
+.org-switcher:hover, .org-switcher[aria-expanded="true"] { border-color:rgba(128,226,176,.38); background:rgba(23,30,43,.92); }
+.holding-menu { position:absolute; z-index:35; top:calc(100% + 8px); left:0; right:0; padding:8px; border:1px solid var(--line); border-radius:12px; background:#151d29; box-shadow:0 18px 45px rgba(0,0,0,.35); }
+.holding-menu-title { padding:5px 8px 8px; color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.1em; }
+.holding-option, .holding-action { width:100%; display:flex; align-items:center; gap:8px; padding:9px 8px; border:0; border-radius:8px; color:var(--text); background:transparent; font-size:11px; text-align:left; }
+.holding-option { justify-content:space-between; }
+.holding-option:hover, .holding-option.active { background:rgba(128,226,176,.09); }
+.holding-option small { color:var(--muted); font-size:9px; }
+.holding-action { margin-top:4px; color:var(--accent); text-decoration:none; }
+.holding-action:hover { background:rgba(128,226,176,.09); }
+.holding-leave { color:#ff9b9b; }
+.holding-leave:disabled { color:var(--muted); cursor:not-allowed; }
+.holding-message { padding:7px 8px 3px; color:#ff9b9b; font-size:10px; line-height:1.4; }
 .org-icon { width:26px; height:26px; display:grid; place-items:center; border-radius:8px; background:rgba(128,226,176,.12); color:var(--accent); }
 .org-meta { min-width:0; flex:1; }
 .org-meta strong { display:block; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

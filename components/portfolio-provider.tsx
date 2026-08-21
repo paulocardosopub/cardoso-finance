@@ -8,12 +8,16 @@ import type { Building, LeaseSummary, MemberRole, NotificationItem, PropertyUnit
 type PortfolioContextValue = {
   organizationId: string | null;
   organizationName: string;
+  userName: string;
+  userInitials: string;
+  holdings: Array<{ id: string; name: string; role: MemberRole }>;
   role: MemberRole;
   buildings: Building[];
   notifications: NotificationItem[];
   loading: boolean;
   error: string;
   refresh: () => Promise<void>;
+  switchOrganization: (organizationId: string) => void;
 };
 
 const PortfolioContext = createContext<PortfolioContextValue | null>(null);
@@ -21,9 +25,24 @@ const PortfolioContext = createContext<PortfolioContextValue | null>(null);
 const statusMap: Record<string, PropertyUnit["status"]> = { rented: "alugado", vacant: "vago", maintenance: "manutencao", negotiation: "negociacao", for_sale: "venda", sold: "vendido" };
 const roleMap: Record<string, MemberRole> = { owner: "owner", admin: "admin", manager: "manager", viewer: "viewer" };
 
+function displayName(session: Session | null, profileName?: string) {
+  const metadata = session?.user.user_metadata as Record<string, unknown> | undefined;
+  const raw = String(profileName || metadata?.full_name || metadata?.name || session?.user.email?.split("@")[0] || "Usuário").trim();
+  return raw.split(/\s+/)[0] || "Usuário";
+}
+
+function initials(session: Session | null, profileName?: string) {
+  const metadata = session?.user.user_metadata as Record<string, unknown> | undefined;
+  const raw = String(profileName || metadata?.full_name || metadata?.name || session?.user.email?.split("@")[0] || "U").trim();
+  const words = raw.split(/\s+/).filter(Boolean);
+  if (words.length > 1) return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+  return raw.slice(0, 2).toUpperCase();
+}
+
 export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
-  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh">>({ organizationId: null, organizationName: "Cardoso Finance", role: "viewer", buildings: [], notifications: [], loading: true, error: "" });
+  const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("cardoso-active-organization"));
+  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", holdings: [], role: "viewer", buildings: [], notifications: [], loading: true, error: "" });
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -37,11 +56,20 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !session) { setValue((current) => ({ ...current, loading: false })); return; }
     setValue((current) => ({ ...current, loading: true, error: "" }));
-    const membership = await supabase.from("organization_members").select("organization_id, role").eq("user_id", session.user.id).order("joined_at", { ascending: true }).limit(1).maybeSingle();
-    if (membership.error) { setValue((current) => ({ ...current, loading: false, error: membership.error.message })); return; }
-    if (!membership.data) { setValue((current) => ({ ...current, organizationId: null, buildings: [], notifications: [], loading: false })); return; }
-    const organizationId = membership.data.organization_id as string;
+    const membershipsResult = await supabase.from("organization_members").select("organization_id, role, joined_at").eq("user_id", session.user.id).order("joined_at", { ascending: true });
+    if (membershipsResult.error) { setValue((current) => ({ ...current, loading: false, error: membershipsResult.error.message })); return; }
+    const memberRows = (membershipsResult.data ?? []) as Array<Record<string, unknown>>;
+    const memberOrganizationIds = memberRows.map((row) => String(row.organization_id));
+    if (!memberOrganizationIds.length) { setValue((current) => ({ ...current, organizationId: null, holdings: [], buildings: [], notifications: [], loading: false })); return; }
+    const organizationsResult = await supabase.from("organizations").select("id, name").in("id", memberOrganizationIds);
+    if (organizationsResult.error) { setValue((current) => ({ ...current, loading: false, error: organizationsResult.error.message })); return; }
+    const organizationNames = new Map((organizationsResult.data ?? []).map((organization) => [String(organization.id), String(organization.name)]));
+    const holdings = memberRows.map((row) => ({ id: String(row.organization_id), name: organizationNames.get(String(row.organization_id)) ?? "Holding", role: roleMap[String(row.role)] ?? "viewer" }));
+    const selectedMembership = holdings.find((holding) => holding.id === activeOrganizationId) ?? holdings[0];
+    const organizationId = selectedMembership.id;
+    if (organizationId !== activeOrganizationId) { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }
     const organization = await supabase.from("organizations").select("name").eq("id", organizationId).single();
+    const profile = await supabase.from("profiles").select("full_name").eq("id", session.user.id).maybeSingle();
     const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, notificationsResult] = await Promise.all([
       supabase.from("assets").select("id, name, current_value, status, source_key").eq("organization_id", organizationId),
       supabase.from("buildings").select("id, asset_id, city, state, total_units, current_value, status, source_key, notes").eq("organization_id", organizationId),
@@ -51,7 +79,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       supabase.from("notifications").select("id, type, title, message, due_date, status, entity_id").eq("organization_id", organizationId).eq("status", "pending").order("due_date", { ascending: true }).limit(20),
     ]);
     const firstError = [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, notificationsResult].find((result) => result.error)?.error;
-    if (firstError) { setValue((current) => ({ ...current, organizationId, loading: false, error: firstError.message })); return; }
+    if (firstError) { setValue((current) => ({ ...current, organizationId, holdings, loading: false, error: firstError.message })); return; }
     const assets = (assetsResult.data ?? []) as Array<Record<string, unknown>>;
     const buildings = (buildingsResult.data ?? []) as Array<Record<string, unknown>>;
     const units = (unitsResult.data ?? []) as Array<Record<string, unknown>>;
@@ -77,11 +105,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       const occupied = list.reduce((sum, unit) => sum + (unit.status === "alugado" ? unit.quantity ?? 1 : 0), 0);
       return { id: String(row.source_key ?? row.id), dbId: String(row.id), sourceKey: row.source_key ? String(row.source_key) : undefined, name: String(asset?.name ?? "Prédio"), city: String(row.city ?? ""), state: String(row.state ?? ""), value: Number(row.current_value ?? asset?.current_value ?? 0), units: unitsTotal, occupied, revenue: list.reduce((sum, unit) => sum + unit.rent, 0), expenses: 0, status: row.status === "for_sale" ? "venda" : "ativo", image: `db-${row.id}`, unitsData: list, sourceRows: list.length };
     });
-    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), role: roleMap[String(membership.data.role)] ?? "viewer", buildings: mappedBuildings, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
-  }, [session]);
+    const profileName = profile.data?.full_name ? String(profile.data.full_name) : undefined;
+    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), holdings, role: selectedMembership.role, buildings: mappedBuildings, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
+  }, [activeOrganizationId, session]);
 
   useEffect(() => { if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null })); }, [refresh, session]);
-  const context = useMemo(() => ({ ...value, refresh }), [refresh, value]);
+  const switchOrganization = useCallback((organizationId: string) => { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }, []);
+  const context = useMemo(() => ({ ...value, refresh, switchOrganization }), [refresh, switchOrganization, value]);
   return <PortfolioContext.Provider value={context}>{children}</PortfolioContext.Provider>;
 }
 
