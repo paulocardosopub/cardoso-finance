@@ -106,7 +106,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     for (const row of units) {
       const lease = leasesByUnit.get(String(row.id));
       const list = unitsByBuilding.get(String(row.building_id)) ?? [];
-      list.push({ id: String(row.id), code: String(row.code), type: String(row.unit_type ?? "Unidade"), area: 0, status: statusMap[String(row.status)] ?? "vago", rent: lease?.currentRent ?? Number(row.potential_rent ?? 0), tenant: lease?.tenantName, tenantName: lease?.tenantName, quantity: Number(row.quantity ?? 1), nextDue: lease?.nextAdjustmentDate, lease });
+      const rent = lease?.currentRent ?? Number(row.potential_rent ?? 0);
+      const baseStatus = statusMap[String(row.status)] ?? "vago";
+      const status = baseStatus === "venda" && rent > 0 ? "venda_alugado" : baseStatus;
+      list.push({ id: String(row.id), code: String(row.code), type: String(row.unit_type ?? "Unidade"), area: 0, status, rent, tenant: lease?.tenantName, tenantName: lease?.tenantName, quantity: Number(row.quantity ?? 1), nextDue: lease?.nextAdjustmentDate, lease });
       unitsByBuilding.set(String(row.building_id), list);
     }
     const mappedBuildings: Building[] = buildings.map((row) => {
