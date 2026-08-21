@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { brl, compactBrl } from "@/lib/format";
 
 export type PropertyMapPin = {
   id: string;
@@ -10,6 +11,9 @@ export type PropertyMapPin = {
   latitude: number;
   longitude: number;
   status: string;
+  tone: "sale" | "rented" | "available";
+  value: number;
+  monthlyRent: number;
   city: string;
   address?: string;
   googleMapsUrl: string;
@@ -19,10 +23,9 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
 }
 
-function pinColor(status: string) {
-  if (status === "venda") return "#ff8e8e";
-  if (status === "vendido") return "#9aa5b8";
-  if (status === "reforma") return "#ffd27c";
+function pinColor(tone: PropertyMapPin["tone"]) {
+  if (tone === "sale") return "#ff7676";
+  if (tone === "available") return "#f3b64c";
   return "#80e2b0";
 }
 
@@ -52,8 +55,10 @@ export function PropertyMap({ pins, onSelect, onMove }: { pins: PropertyMapPin[]
       if (!nextIds.has(id)) { layer.removeLayer(marker); markersRef.current.delete(id); }
     });
     pins.forEach((pin) => {
-      const icon = L.divIcon({ className: "property-map-pin", html: `<span style="background:${pinColor(pin.status)}"></span>`, iconSize: [22, 22], iconAnchor: [11, 22], popupAnchor: [0, -20] });
-      const popup = `<strong>${escapeHtml(pin.name)}</strong><br/><span>${escapeHtml(pin.city || pin.address || "Localização cadastrada")}</span><br/><a href="${pin.googleMapsUrl}" target="_blank" rel="noreferrer">Abrir no Google Maps</a>`;
+      const valueLabel = escapeHtml(compactBrl(pin.value));
+      const rentLabel = pin.monthlyRent > 0 ? escapeHtml(`${brl(pin.monthlyRent)}/mês`) : "";
+      const icon = L.divIcon({ className: "property-map-pin", html: `<span class="property-map-building" style="--building-color:${pinColor(pin.tone)}"></span><span class="property-map-label"><b>${valueLabel}</b>${rentLabel ? `<em>${rentLabel}</em>` : ""}</span>`, iconSize: [190, 38], iconAnchor: [12, 30], popupAnchor: [0, -28] });
+      const popup = `<strong>${escapeHtml(pin.name)}</strong><br/><span>${escapeHtml(pin.city || pin.address || "Localização cadastrada")}</span><br/><span>${valueLabel}${rentLabel ? ` · ${rentLabel}` : ""}</span><br/><a href="${pin.googleMapsUrl}" target="_blank" rel="noreferrer">Abrir no Google Maps</a>`;
       const existing = markersRef.current.get(pin.id);
       if (existing) {
         existing.setLatLng([pin.latitude, pin.longitude]);
@@ -67,12 +72,18 @@ export function PropertyMap({ pins, onSelect, onMove }: { pins: PropertyMapPin[]
       marker.on("dragend", () => { const position = marker.getLatLng(); onMove?.(pin.id, position.lat, position.lng); });
       markersRef.current.set(pin.id, marker);
     });
-    if (!fittedRef.current && pins.length) {
-      if (pins.length > 1) map.fitBounds(L.latLngBounds(pins.map((pin) => [pin.latitude, pin.longitude] as [number, number])), { padding: [32, 32], maxZoom: 14 });
-      else map.setView([pins[0].latitude, pins[0].longitude], 15);
+    let active = true;
+    const fitPortfolio = () => {
+      if (!active || fittedRef.current || !pins.length) return;
+      map.invalidateSize({ pan: false });
+      if (pins.length > 1) map.fitBounds(L.latLngBounds(pins.map((pin) => [pin.latitude, pin.longitude] as [number, number])), { padding: [48, 48], maxZoom: 14, animate: false });
+      else map.setView([pins[0].latitude, pins[0].longitude], 15, { animate: false });
       fittedRef.current = true;
-    }
+    };
+    window.requestAnimationFrame(fitPortfolio);
+    map.whenReady(fitPortfolio);
     if (!pins.length) fittedRef.current = false;
+    return () => { active = false; };
   }, [onMove, onSelect, pins]);
 
   return <div ref={containerRef} className="property-map" aria-label="Mapa dos imóveis" />;

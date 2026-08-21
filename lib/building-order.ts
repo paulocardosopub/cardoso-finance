@@ -11,3 +11,11 @@ export function buildingOrderRank(building: Pick<Building, "id" | "dbId" | "sour
 export function sortBuildings<T extends Pick<Building, "id" | "dbId" | "sourceKey" | "name">>(buildings: T[]) {
   return [...buildings].sort((left, right) => buildingOrderRank(left) - buildingOrderRank(right) || left.name.localeCompare(right.name, "pt-BR"));
 }
+
+export function buildingIsForSale(building: Pick<Building, "status" | "unitsData">) {
+  return building.status === "venda" || (building.unitsData ?? []).some((unit) => unit.status === "venda" || unit.status === "venda_alugado");
+}
+
+export function sortBuildingsForDisplay<T extends Pick<Building, "id" | "dbId" | "sourceKey" | "name" | "status" | "unitsData">>(buildings: T[]) {
+  return [...buildings].sort((left, right) => Number(buildingIsForSale(right)) - Number(buildingIsForSale(left)) || buildingOrderRank(left) - buildingOrderRank(right) || left.name.localeCompare(right.name, "pt-BR"));
+}

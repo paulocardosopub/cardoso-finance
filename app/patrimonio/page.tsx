@@ -5,10 +5,11 @@ import { useEffect, useState } from "react";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { compactBrl } from "@/lib/format";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { sortBuildingsForDisplay } from "@/lib/building-order";
 
 export default function PatrimonioPage() {
   const { buildings, loading, organizationId } = usePortfolio();
-  const activeBuildings = buildings.filter((building) => building.status !== "vendido");
+  const activeBuildings = sortBuildingsForDisplay(buildings.filter((building) => building.status !== "vendido"));
   const [buildingPhotos, setBuildingPhotos] = useState<Record<string, string>>({});
   useEffect(() => {
     let active = true;

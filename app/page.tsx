@@ -8,10 +8,11 @@ import { usePortfolio } from "@/components/portfolio-provider";
 import { brl, compactBrl } from "@/lib/format";
 import type { Building } from "@/types/domain";
 import { buildingPath } from "@/lib/building-path";
+import { buildingIsForSale, sortBuildingsForDisplay } from "@/lib/building-order";
 import { useEffect, useState } from "react";
 
 function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda" || unit.status === "venda_alugado"); }
-function isForSale(building: Building) { return building.status === "venda" || saleUnits(building).length > 0; }
+function isForSale(building: Building) { return buildingIsForSale(building); }
 const welcomeMessages = [
   "Bem-vindo de volta, {name}!",
   "Bom te ver por aqui, {name}!",
@@ -29,7 +30,7 @@ export default function DashboardPage() {
   const { buildings, notifications, loading, organizationId, userName, monthlyExpenses, monthlyProfit } = usePortfolio();
   const [welcomeIndex, setWelcomeIndex] = useState(0);
   useEffect(() => { setWelcomeIndex(Math.floor(Math.random() * welcomeMessages.length)); }, []);
-  const activeBuildings = buildings.filter((building) => building.status !== "vendido");
+  const activeBuildings = sortBuildingsForDisplay(buildings.filter((building) => building.status !== "vendido"));
   const totalValue = activeBuildings.reduce((total, building) => total + building.value, 0);
   const totalRevenue = activeBuildings.reduce((total, building) => total + building.revenue, 0);
   const occupied = activeBuildings.reduce((total, building) => total + building.occupied, 0);
