@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { Session } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { Building, ExpenseRecord, LeaseSummary, MemberRole, NotificationItem, PropertyUnit } from "@/types/domain";
+import { sortBuildings } from "@/lib/building-order";
 
 type PortfolioContextValue = {
   organizationId: string | null;
@@ -132,13 +133,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       unitsByBuilding.set(String(row.building_id), list);
     }
     const buildingStatusMap: Record<string, Building["status"]> = { active: "ativo", renovation: "reforma", for_sale: "venda", sold: "vendido", inactive: "inativo" };
-    const mappedBuildings: Building[] = buildings.map((row) => {
+    const mappedBuildings: Building[] = sortBuildings(buildings.map((row) => {
       const list = unitsByBuilding.get(String(row.id)) ?? [];
       const asset = assets.find((item) => String(item.id) === String(row.asset_id));
       const unitsTotal = list.reduce((sum, unit) => sum + (unit.quantity ?? 1), 0) || Number(row.total_units ?? 0);
       const occupied = list.reduce((sum, unit) => sum + (unit.status === "alugado" || unit.status === "venda_alugado" || unit.rent > 0 ? unit.quantity ?? 1 : 0), 0);
       return { id: String(row.source_key ?? row.id), dbId: String(row.id), assetId: asset?.id ? String(asset.id) : undefined, sourceKey: row.source_key ? String(row.source_key) : undefined, name: String(asset?.name ?? "Prédio"), address: String(row.address ?? ""), city: String(row.city ?? ""), state: String(row.state ?? ""), postalCode: row.postal_code ? String(row.postal_code) : undefined, latitude: Number.isFinite(Number(row.latitude)) ? Number(row.latitude) : undefined, longitude: Number.isFinite(Number(row.longitude)) ? Number(row.longitude) : undefined, description: String(row.description ?? ""), acquisitionDate: row.acquisition_date ? String(row.acquisition_date) : undefined, acquisitionValue: Number(row.acquisition_value ?? 0), lastValuationDate: row.last_valuation_date ? String(row.last_valuation_date) : undefined, notes: String(row.notes ?? ""), value: Number(row.current_value ?? asset?.current_value ?? 0), units: unitsTotal, occupied, revenue: list.reduce((sum, unit) => sum + unit.rent, 0), expenses: 0, status: buildingStatusMap[String(row.status)] ?? "ativo", image: `db-${row.id}`, unitsData: list, sourceRows: list.length };
-    });
+    }));
     const currentMonth = new Date().toISOString().slice(0, 7);
     const monthlyExpenses = expenses.filter((expense) => expense.expense_kind !== "one_time" || expense.expense_date?.startsWith(currentMonth)).reduce((total, expense) => total + Number(expense.value || 0), 0);
     const monthlyProfit = mappedBuildings.reduce((total, building) => total + building.revenue, 0) - monthlyExpenses;

@@ -8,6 +8,7 @@ import { brl, compactBrl } from "@/lib/format";
 import type { Building } from "@/types/domain";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { buildingPath } from "@/lib/building-path";
+import { buildingOrderRank } from "@/lib/building-order";
 
 function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda" || unit.status === "venda_alugado"); }
 function isForSale(building: Building) { return building.status === "venda" || saleUnits(building).length > 0; }
@@ -47,7 +48,7 @@ export default function ImoveisPage() {
     const matchesFilter = filter === "todos" || filter === "vendidos" || (filter === "venda" ? isForSale(building) : filter === "ocupados" ? building.occupied > 0 : building.occupied < building.units);
     return matchesQuery && matchesFilter;
   }), [buildings, filter, query]);
-  const orderedVisible = useMemo(() => [...visible].sort((left, right) => Number(isForSale(right)) - Number(isForSale(left))), [visible]);
+  const orderedVisible = useMemo(() => [...visible].sort((left, right) => Number(isForSale(right)) - Number(isForSale(left)) || buildingOrderRank(left) - buildingOrderRank(right) || left.name.localeCompare(right.name, "pt-BR")), [visible]);
   const activeBuildings = buildings.filter((building) => building.status !== "vendido");
   const totalValue = activeBuildings.reduce((total, building) => total + building.value, 0);
   const totalUnits = activeBuildings.reduce((total, building) => total + building.units, 0);
