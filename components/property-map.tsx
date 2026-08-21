@@ -3,7 +3,6 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { brl, compactBrl } from "@/lib/format";
 
 export type PropertyMapPin = {
   id: string;
@@ -12,8 +11,6 @@ export type PropertyMapPin = {
   longitude: number;
   status: string;
   tone: "sale" | "rented" | "available";
-  value: number;
-  monthlyRent: number;
   city: string;
   address?: string;
   googleMapsUrl: string;
@@ -55,10 +52,8 @@ export function PropertyMap({ pins, onSelect, onMove }: { pins: PropertyMapPin[]
       if (!nextIds.has(id)) { layer.removeLayer(marker); markersRef.current.delete(id); }
     });
     pins.forEach((pin) => {
-      const valueLabel = escapeHtml(compactBrl(pin.value));
-      const rentLabel = pin.monthlyRent > 0 ? escapeHtml(`${brl(pin.monthlyRent)}/mês`) : "";
-      const icon = L.divIcon({ className: "property-map-pin", html: `<span class="property-map-building" style="--building-color:${pinColor(pin.tone)}"></span><span class="property-map-label"><b>${valueLabel}</b>${rentLabel ? `<em>${rentLabel}</em>` : ""}</span>`, iconSize: [190, 38], iconAnchor: [12, 30], popupAnchor: [0, -28] });
-      const popup = `<strong>${escapeHtml(pin.name)}</strong><br/><span>${escapeHtml(pin.city || pin.address || "Localização cadastrada")}</span><br/><span>${valueLabel}${rentLabel ? ` · ${rentLabel}` : ""}</span><br/><a href="${pin.googleMapsUrl}" target="_blank" rel="noreferrer">Abrir no Google Maps</a>`;
+      const icon = L.divIcon({ className: "property-map-pin", html: `<span class="property-map-building" style="--building-color:${pinColor(pin.tone)}"></span>`, iconSize: [24, 30], iconAnchor: [12, 30], popupAnchor: [0, -28] });
+      const popup = `<strong>${escapeHtml(pin.name)}</strong><br/><span>${escapeHtml(pin.city || pin.address || "Localização cadastrada")}</span><br/><a href="${pin.googleMapsUrl}" target="_blank" rel="noreferrer">Abrir no Google Maps</a>`;
       const existing = markersRef.current.get(pin.id);
       if (existing) {
         existing.setLatLng([pin.latitude, pin.longitude]);

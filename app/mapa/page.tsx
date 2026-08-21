@@ -33,14 +33,14 @@ export default function MapaPage() {
   const [message, setMessage] = useState("");
 
   const selectedBuilding = buildings.find((building) => building.id === selectedId || building.dbId === selectedId) ?? buildings[0];
-  const savedPins = useMemo<PropertyMapPin[]>(() => buildings.filter((building) => Number.isFinite(building.latitude) && Number.isFinite(building.longitude)).map((building) => ({ id: building.id, name: building.name, latitude: Number(building.latitude), longitude: Number(building.longitude), status: building.status, tone: pinTone(building), value: building.value, monthlyRent: building.revenue, city: `${building.city}${building.state ? `, ${building.state}` : ""}`, address: building.address, googleMapsUrl: mapsUrl(Number(building.latitude), Number(building.longitude)) })), [buildings]);
+  const savedPins = useMemo<PropertyMapPin[]>(() => buildings.filter((building) => Number.isFinite(building.latitude) && Number.isFinite(building.longitude) && !(building.latitude === 0 && building.longitude === 0)).map((building) => ({ id: building.id, name: building.name, latitude: Number(building.latitude), longitude: Number(building.longitude), status: building.status, tone: pinTone(building), city: `${building.city}${building.state ? `, ${building.state}` : ""}`, address: building.address, googleMapsUrl: mapsUrl(Number(building.latitude), Number(building.longitude)) })), [buildings]);
   const pins = useMemo<PropertyMapPin[]>(() => {
     const previewLatitude = Number(form.latitude.replace(",", "."));
     const previewLongitude = Number(form.longitude.replace(",", "."));
     const hasSavedPin = selectedBuilding && savedPins.some((pin) => pin.id === selectedBuilding.id);
     if (selectedBuilding && Number.isFinite(previewLatitude) && Number.isFinite(previewLongitude)) {
       if (hasSavedPin) return savedPins.map((pin) => pin.id === selectedBuilding.id ? { ...pin, latitude: previewLatitude, longitude: previewLongitude, googleMapsUrl: mapsUrl(previewLatitude, previewLongitude) } : pin);
-      return [...savedPins, { id: selectedBuilding.id, name: `${selectedBuilding.name} (novo pin)`, latitude: previewLatitude, longitude: previewLongitude, status: selectedBuilding.status, tone: pinTone(selectedBuilding), value: selectedBuilding.value, monthlyRent: selectedBuilding.revenue, city: `${form.city}${form.state ? `, ${form.state}` : ""}`, address: form.address, googleMapsUrl: mapsUrl(previewLatitude, previewLongitude) }];
+      return [...savedPins, { id: selectedBuilding.id, name: `${selectedBuilding.name} (novo pin)`, latitude: previewLatitude, longitude: previewLongitude, status: selectedBuilding.status, tone: pinTone(selectedBuilding), city: `${form.city}${form.state ? `, ${form.state}` : ""}`, address: form.address, googleMapsUrl: mapsUrl(previewLatitude, previewLongitude) }];
     }
     return savedPins;
   }, [form.address, form.city, form.latitude, form.longitude, form.state, savedPins, selectedBuilding]);
