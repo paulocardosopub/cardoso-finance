@@ -32,6 +32,7 @@ export function PropertyMap({ pins, onSelect, onMove }: { pins: PropertyMapPin[]
   const layerRef = useRef<L.LayerGroup | null>(null);
   const markersRef = useRef(new Map<string, L.Marker>());
   const fittedRef = useRef(false);
+  const userInteractedRef = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -40,7 +41,9 @@ export function PropertyMap({ pins, onSelect, onMove }: { pins: PropertyMapPin[]
     mapRef.current = map;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>' }).addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
-    return () => { map.remove(); mapRef.current = null; layerRef.current = null; markers.clear(); fittedRef.current = false; };
+    const markInteraction = () => { if (fittedRef.current) userInteractedRef.current = true; };
+    map.on("dragstart zoomstart", markInteraction);
+    return () => { map.remove(); mapRef.current = null; layerRef.current = null; markers.clear(); fittedRef.current = false; userInteractedRef.current = false; };
   }, []);
 
   useEffect(() => {
@@ -68,17 +71,18 @@ export function PropertyMap({ pins, onSelect, onMove }: { pins: PropertyMapPin[]
       markersRef.current.set(pin.id, marker);
     });
     let active = true;
-    const fitPortfolio = () => {
-      if (!active || fittedRef.current || !pins.length) return;
+    const fitPortfolio = (force = false) => {
+      if (!active || !pins.length || userInteractedRef.current || (fittedRef.current && !force)) return;
       map.invalidateSize({ pan: false });
       if (pins.length > 1) map.fitBounds(L.latLngBounds(pins.map((pin) => [pin.latitude, pin.longitude] as [number, number])), { padding: [48, 48], maxZoom: 14, animate: false });
       else map.setView([pins[0].latitude, pins[0].longitude], 15, { animate: false });
       fittedRef.current = true;
     };
-    window.requestAnimationFrame(fitPortfolio);
-    map.whenReady(fitPortfolio);
+    const initialTimer = window.setTimeout(() => fitPortfolio(), 180);
+    const onVisibility = () => { if (document.visibilityState === "visible") window.setTimeout(() => fitPortfolio(true), 80); };
+    document.addEventListener("visibilitychange", onVisibility);
     if (!pins.length) fittedRef.current = false;
-    return () => { active = false; };
+    return () => { active = false; window.clearTimeout(initialTimer); document.removeEventListener("visibilitychange", onVisibility); };
   }, [onMove, onSelect, pins]);
 
   return <div ref={containerRef} className="property-map" aria-label="Mapa dos imóveis" />;
