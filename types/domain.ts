@@ -2,6 +2,7 @@ export type OrganizationType = "personal" | "family" | "company";
 export type MemberRole = "owner" | "admin" | "manager" | "viewer";
 export type UnitStatus = "alugado" | "vago" | "manutencao" | "servico" | "negociacao" | "venda" | "venda_alugado" | "vendido";
 export type ExpenseKind = "fixed" | "recurring" | "one_time";
+export type LeasePaymentStatus = "pending" | "paid" | "overdue" | "partial" | "waived";
 
 export type ExpenseRecord = {
   id: string;
@@ -16,6 +17,39 @@ export type ExpenseRecord = {
   responsible_contact_id?: string;
   building_id?: string;
   responsibilities?: Array<{ user_id?: string; contact_id?: string; share_percentage: number }>;
+};
+
+export type LeasePaymentRecord = {
+  id: string;
+  leaseId: string;
+  competence: string;
+  dueDate: string;
+  expectedAmount: number;
+  receivedAmount: number;
+  receivedAt?: string;
+  discount: number;
+  fine: number;
+  interest: number;
+  managementFee: number;
+  otherDiscounts: number;
+  netAmount: number;
+  status: LeasePaymentStatus;
+  notes?: string;
+};
+
+export type DistributionRecord = {
+  id: string;
+  distributionDate: string;
+  description: string;
+  totalValue: number;
+  status: string;
+  items: Array<{ id: string; userId?: string; contactId?: string; percentage: number; value: number; paymentStatus: string; paidAt?: string }>;
+};
+
+export type BankAccount = {
+  id: string;
+  name: string;
+  initialBalance: number;
 };
 
 export type Organization = {
@@ -77,6 +111,8 @@ export type LeaseSummary = {
   startDate?: string;
   endDate?: string;
   currentRent: number;
+  dueDay?: number;
+  lastPaymentDate?: string;
   nextAdjustmentDate?: string;
   adjustmentFrequency?: string;
   adjustmentIndex?: string;

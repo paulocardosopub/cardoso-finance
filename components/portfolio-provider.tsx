@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
-import type { Building, ExpenseRecord, LeaseSummary, MemberRole, NotificationItem, PropertyUnit } from "@/types/domain";
+import type { BankAccount, Building, DistributionRecord, ExpenseRecord, LeasePaymentRecord, LeaseSummary, MemberRole, NotificationItem, PropertyUnit } from "@/types/domain";
 import { sortBuildings } from "@/lib/building-order";
 
 type PortfolioContextValue = {
@@ -19,6 +19,10 @@ type PortfolioContextValue = {
   role: MemberRole;
   buildings: Building[];
   expenses: ExpenseRecord[];
+  leasePayments: LeasePaymentRecord[];
+  distributions: DistributionRecord[];
+  bankAccount: BankAccount | null;
+  bankBalance: number;
   monthlyExpenses: number;
   monthlyProfit: number;
   notifications: NotificationItem[];
@@ -59,7 +63,7 @@ function mapPendingInvitations(data: unknown): PendingInvitation[] {
 export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("cardoso-active-organization"));
-  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "setPrimaryOrganization" | "acceptInvitation" | "declineInvitation">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", userEmail: "", userPhone: "", userAvatarUrl: "", holdings: [], pendingInvitations: [], role: "viewer", buildings: [], expenses: [], monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" });
+  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "setPrimaryOrganization" | "acceptInvitation" | "declineInvitation">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", userEmail: "", userPhone: "", userAvatarUrl: "", holdings: [], pendingInvitations: [], role: "viewer", buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" });
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -84,7 +88,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const profileEmail = session.user.email ?? "";
     const memberRows = (membershipsResult.data ?? []) as Array<Record<string, unknown>>;
     const memberOrganizationIds = memberRows.map((row) => String(row.organization_id));
-    if (!memberOrganizationIds.length) { setValue((current) => ({ ...current, organizationId: null, userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings: [], pendingInvitations, buildings: [], expenses: [], monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false })); return; }
+    if (!memberOrganizationIds.length) { setValue((current) => ({ ...current, organizationId: null, userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings: [], pendingInvitations, buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false })); return; }
     const organizationsResult = await supabase.from("organizations").select("id, name").in("id", memberOrganizationIds);
     if (organizationsResult.error) { setValue((current) => ({ ...current, loading: false, error: organizationsResult.error.message })); return; }
     const organizationNames = new Map((organizationsResult.data ?? []).map((organization) => [String(organization.id), String(organization.name)]));
@@ -93,23 +97,34 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const organizationId = selectedMembership.id;
     if (organizationId !== activeOrganizationId) { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }
     const organization = await supabase.from("organizations").select("name").eq("id", organizationId).single();
-    const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult] = await Promise.all([
+    const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, distributionsResult, distributionItemsResult, bankAccountResult] = await Promise.all([
       supabase.from("assets").select("id, name, current_value, status, source_key").eq("organization_id", organizationId),
       supabase.from("buildings").select("id, asset_id, address, city, state, postal_code, latitude, longitude, description, total_units, acquisition_date, acquisition_value, current_value, last_valuation_date, status, source_key, notes").eq("organization_id", organizationId),
       supabase.from("property_units").select("id, building_id, code, unit_type, potential_rent, status, quantity, notes, updated_at").eq("organization_id", organizationId).order("code"),
-      supabase.from("leases").select("id, unit_id, tenant_id, start_date, end_date, current_rent, next_adjustment, adjustment_frequency, adjustment_index, contract_document_url, notes, status").eq("organization_id", organizationId).in("status", ["active", "ending", "draft"]),
+      supabase.from("leases").select("id, unit_id, tenant_id, start_date, end_date, current_rent, due_day, next_adjustment, adjustment_frequency, adjustment_index, contract_document_url, notes, status").eq("organization_id", organizationId).in("status", ["active", "ending", "draft"]),
       supabase.from("tenants").select("id, name").eq("organization_id", organizationId),
       supabase.from("expenses").select("id, description, category, value, expense_date, competence, expense_kind, responsible, responsible_user_id, responsible_contact_id, building_id").eq("organization_id", organizationId).order("expense_date", { ascending: false }),
       supabase.from("expense_responsibilities").select("expense_id, user_id, contact_id, share_percentage").eq("organization_id", organizationId),
       supabase.from("notifications").select("id, type, title, message, due_date, status, entity_id").eq("organization_id", organizationId).eq("status", "pending").order("due_date", { ascending: true }).limit(20),
+      supabase.from("lease_payments").select("id, lease_id, competence, due_date, expected_amount, received_amount, received_at, discount, fine, interest, management_fee, other_discounts, net_amount, status, notes").eq("organization_id", organizationId).order("competence", { ascending: false }),
+      supabase.from("distributions").select("id, distribution_date, description, total_value, status").eq("organization_id", organizationId).order("distribution_date", { ascending: false }),
+      supabase.from("distribution_items").select("id, distribution_id, user_id, contact_id, percentage, value, payment_status, paid_at").eq("organization_id", organizationId),
+      supabase.from("bank_accounts").select("id, name, initial_balance").eq("organization_id", organizationId).maybeSingle(),
     ]);
-    const firstError = [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult].find((result) => result.error)?.error;
+    const firstError = [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, distributionsResult, distributionItemsResult, bankAccountResult].find((result) => result.error)?.error;
     if (firstError) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, loading: false, error: firstError.message })); return; }
     const assets = (assetsResult.data ?? []) as Array<Record<string, unknown>>;
     const buildings = (buildingsResult.data ?? []) as Array<Record<string, unknown>>;
     const units = (unitsResult.data ?? []) as Array<Record<string, unknown>>;
     const leases = (leasesResult.data ?? []) as Array<Record<string, unknown>>;
     const tenants = (tenantsResult.data ?? []) as Array<Record<string, unknown>>;
+    const leasePayments = ((leasePaymentsResult.data ?? []) as Array<Record<string, unknown>>).map((payment): LeasePaymentRecord => ({ id: String(payment.id), leaseId: String(payment.lease_id), competence: String(payment.competence), dueDate: String(payment.due_date), expectedAmount: Number(payment.expected_amount ?? 0), receivedAmount: Number(payment.received_amount ?? 0), receivedAt: payment.received_at ? String(payment.received_at) : undefined, discount: Number(payment.discount ?? 0), fine: Number(payment.fine ?? 0), interest: Number(payment.interest ?? 0), managementFee: Number(payment.management_fee ?? 0), otherDiscounts: Number(payment.other_discounts ?? 0), netAmount: Number(payment.net_amount ?? 0), status: String(payment.status) as LeasePaymentRecord["status"], notes: payment.notes ? String(payment.notes) : undefined }));
+    const rawDistributions = (distributionsResult.data ?? []) as Array<Record<string, unknown>>;
+    const rawDistributionItems = (distributionItemsResult.data ?? []) as Array<Record<string, unknown>>;
+    const distributions: DistributionRecord[] = rawDistributions.map((distribution) => ({ id: String(distribution.id), distributionDate: String(distribution.distribution_date), description: String(distribution.description), totalValue: Number(distribution.total_value ?? 0), status: String(distribution.status), items: rawDistributionItems.filter((item) => String(item.distribution_id) === String(distribution.id)).map((item) => ({ id: String(item.id), userId: item.user_id ? String(item.user_id) : undefined, contactId: item.contact_id ? String(item.contact_id) : undefined, percentage: Number(item.percentage ?? 0), value: Number(item.value ?? 0), paymentStatus: String(item.payment_status), paidAt: item.paid_at ? String(item.paid_at) : undefined })) }));
+    const bankAccount: BankAccount | null = bankAccountResult.data ? { id: String(bankAccountResult.data.id), name: String(bankAccountResult.data.name ?? "Conta principal"), initialBalance: Number(bankAccountResult.data.initial_balance ?? 0) } : null;
+    const paidRent = leasePayments.filter((payment) => payment.status === "paid" || payment.receivedAmount > 0).reduce((total, payment) => total + (payment.netAmount || payment.receivedAmount), 0);
+    const paidDistributions = distributions.filter((distribution) => distribution.status === "paid").reduce((total, distribution) => total + distribution.items.filter((item) => item.paymentStatus === "paid").reduce((sum, item) => sum + item.value, 0), 0);
     const expenseAssignments = (expenseResponsibilitiesResult.data ?? []) as Array<{ expense_id: string; user_id?: string | null; contact_id?: string | null; share_percentage?: number | null }>;
     const expenses = ((expensesResult.data ?? []) as ExpenseRecord[]).map((expense) => {
       const assigned = expenseAssignments.filter((item) => String(item.expense_id) === String(expense.id)).map((item) => ({ user_id: item.user_id ?? undefined, contact_id: item.contact_id ?? undefined, share_percentage: Number(item.share_percentage ?? 0) }));
@@ -117,10 +132,14 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       return { ...expense, responsibilities: assigned.length ? assigned : fallback };
     });
     const tenantNames = new Map(tenants.map((tenant) => [String(tenant.id), String(tenant.name)]));
+    const paymentsByLease = new Map<string, LeasePaymentRecord[]>();
+    for (const payment of leasePayments) paymentsByLease.set(payment.leaseId, [...(paymentsByLease.get(payment.leaseId) ?? []), payment]);
     const leasesByUnit = new Map<string, LeaseSummary>();
     for (const lease of leases) {
       if (!lease.unit_id) continue;
-      leasesByUnit.set(String(lease.unit_id), { id: String(lease.id), tenantId: lease.tenant_id ? String(lease.tenant_id) : undefined, tenantName: lease.tenant_id ? tenantNames.get(String(lease.tenant_id)) : undefined, startDate: lease.start_date ? String(lease.start_date) : undefined, endDate: lease.end_date ? String(lease.end_date) : undefined, currentRent: Number(lease.current_rent ?? 0), nextAdjustmentDate: lease.next_adjustment ? String(lease.next_adjustment) : undefined, adjustmentFrequency: lease.adjustment_frequency ? String(lease.adjustment_frequency) : undefined, adjustmentIndex: lease.adjustment_index ? String(lease.adjustment_index) : undefined, contractDocumentUrl: lease.contract_document_url ? String(lease.contract_document_url) : undefined, notes: lease.notes ? String(lease.notes) : undefined, status: String(lease.status) });
+      const leasePaymentHistory = paymentsByLease.get(String(lease.id)) ?? [];
+      const lastPayment = leasePaymentHistory.find((payment) => payment.receivedAt);
+      leasesByUnit.set(String(lease.unit_id), { id: String(lease.id), tenantId: lease.tenant_id ? String(lease.tenant_id) : undefined, tenantName: lease.tenant_id ? tenantNames.get(String(lease.tenant_id)) : undefined, startDate: lease.start_date ? String(lease.start_date) : undefined, endDate: lease.end_date ? String(lease.end_date) : undefined, currentRent: Number(lease.current_rent ?? 0), dueDay: Number(lease.due_day ?? 10), lastPaymentDate: lastPayment?.receivedAt, nextAdjustmentDate: lease.next_adjustment ? String(lease.next_adjustment) : undefined, adjustmentFrequency: lease.adjustment_frequency ? String(lease.adjustment_frequency) : undefined, adjustmentIndex: lease.adjustment_index ? String(lease.adjustment_index) : undefined, contractDocumentUrl: lease.contract_document_url ? String(lease.contract_document_url) : undefined, notes: lease.notes ? String(lease.notes) : undefined, status: String(lease.status) });
     }
     const unitsByBuilding = new Map<string, PropertyUnit[]>();
     for (const row of units) {
@@ -145,10 +164,12 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const monthlyExpenses = expenses.filter((expense) => expense.expense_kind !== "one_time" || expense.expense_date?.startsWith(currentMonth)).reduce((total, expense) => total + Number(expense.value || 0), 0);
     const monthlyProfit = mappedBuildings.reduce((total, building) => total + building.revenue, 0) - monthlyExpenses;
-    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: selectedMembership.role, buildings: mappedBuildings, expenses, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
+    const paidExpenses = expenses.filter((expense) => new Date(`${expense.expense_date}T12:00:00`) <= new Date()).reduce((total, expense) => total + Number(expense.value || 0), 0);
+    const bankBalance = (bankAccount?.initialBalance ?? 0) + paidRent - paidExpenses - paidDistributions;
+    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: selectedMembership.role, buildings: mappedBuildings, expenses, leasePayments, distributions, bankAccount, bankBalance, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
   }, [activeOrganizationId, session]);
 
-  useEffect(() => { if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], buildings: [], expenses: [], monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session]);
+  useEffect(() => { if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session]);
   useEffect(() => {
     if (!session) return;
     const interval = window.setInterval(async () => {
