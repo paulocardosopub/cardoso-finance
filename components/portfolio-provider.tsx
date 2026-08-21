@@ -92,23 +92,29 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const organizationId = selectedMembership.id;
     if (organizationId !== activeOrganizationId) { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }
     const organization = await supabase.from("organizations").select("name").eq("id", organizationId).single();
-    const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, notificationsResult] = await Promise.all([
+    const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult] = await Promise.all([
       supabase.from("assets").select("id, name, current_value, status, source_key").eq("organization_id", organizationId),
       supabase.from("buildings").select("id, asset_id, address, city, state, postal_code, latitude, longitude, description, total_units, acquisition_date, acquisition_value, current_value, last_valuation_date, status, source_key, notes").eq("organization_id", organizationId),
       supabase.from("property_units").select("id, building_id, code, unit_type, potential_rent, status, quantity, notes, updated_at").eq("organization_id", organizationId).order("code"),
       supabase.from("leases").select("id, unit_id, tenant_id, start_date, end_date, current_rent, next_adjustment, adjustment_frequency, adjustment_index, contract_document_url, notes, status").eq("organization_id", organizationId).in("status", ["active", "ending", "draft"]),
       supabase.from("tenants").select("id, name").eq("organization_id", organizationId),
       supabase.from("expenses").select("id, description, category, value, expense_date, competence, expense_kind, responsible, responsible_user_id, responsible_contact_id, building_id").eq("organization_id", organizationId).order("expense_date", { ascending: false }),
+      supabase.from("expense_responsibilities").select("expense_id, user_id, contact_id, share_percentage").eq("organization_id", organizationId),
       supabase.from("notifications").select("id, type, title, message, due_date, status, entity_id").eq("organization_id", organizationId).eq("status", "pending").order("due_date", { ascending: true }).limit(20),
     ]);
-    const firstError = [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, notificationsResult].find((result) => result.error)?.error;
+    const firstError = [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult].find((result) => result.error)?.error;
     if (firstError) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, loading: false, error: firstError.message })); return; }
     const assets = (assetsResult.data ?? []) as Array<Record<string, unknown>>;
     const buildings = (buildingsResult.data ?? []) as Array<Record<string, unknown>>;
     const units = (unitsResult.data ?? []) as Array<Record<string, unknown>>;
     const leases = (leasesResult.data ?? []) as Array<Record<string, unknown>>;
     const tenants = (tenantsResult.data ?? []) as Array<Record<string, unknown>>;
-    const expenses = (expensesResult.data ?? []) as ExpenseRecord[];
+    const expenseAssignments = (expenseResponsibilitiesResult.data ?? []) as Array<{ expense_id: string; user_id?: string | null; contact_id?: string | null; share_percentage?: number | null }>;
+    const expenses = ((expensesResult.data ?? []) as ExpenseRecord[]).map((expense) => {
+      const assigned = expenseAssignments.filter((item) => String(item.expense_id) === String(expense.id)).map((item) => ({ user_id: item.user_id ?? undefined, contact_id: item.contact_id ?? undefined, share_percentage: Number(item.share_percentage ?? 0) }));
+      const fallback = !assigned.length && (expense.responsible_user_id || expense.responsible_contact_id) ? [{ user_id: expense.responsible_user_id, contact_id: expense.responsible_contact_id, share_percentage: 100 }] : [];
+      return { ...expense, responsibilities: assigned.length ? assigned : fallback };
+    });
     const tenantNames = new Map(tenants.map((tenant) => [String(tenant.id), String(tenant.name)]));
     const leasesByUnit = new Map<string, LeaseSummary>();
     for (const lease of leases) {
