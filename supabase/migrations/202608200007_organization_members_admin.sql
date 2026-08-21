@@ -22,7 +22,7 @@ as $$
   join auth.users u on u.id = m.user_id
   left join public.profiles p on p.id = m.user_id
   where m.organization_id = target_org
-    and public.is_org_member(target_org, 'admin')
+    and public.is_org_member(target_org)
   order by m.joined_at asc;
 $$;
 
