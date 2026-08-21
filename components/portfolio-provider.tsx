@@ -11,6 +11,7 @@ type PortfolioContextValue = {
   userName: string;
   userInitials: string;
   holdings: Array<{ id: string; name: string; role: MemberRole }>;
+  pendingInvitations: Array<{ id: string; organizationId: string; organizationName: string; role: MemberRole; expiresAt: string }>;
   role: MemberRole;
   buildings: Building[];
   notifications: NotificationItem[];
@@ -18,6 +19,8 @@ type PortfolioContextValue = {
   error: string;
   refresh: () => Promise<void>;
   switchOrganization: (organizationId: string) => void;
+  acceptInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>;
+  declineInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>;
 };
 
 const PortfolioContext = createContext<PortfolioContextValue | null>(null);
@@ -42,7 +45,7 @@ function initials(session: Session | null, profileName?: string) {
 export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("cardoso-active-organization"));
-  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", holdings: [], role: "viewer", buildings: [], notifications: [], loading: true, error: "" });
+  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "acceptInvitation" | "declineInvitation">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", holdings: [], pendingInvitations: [], role: "viewer", buildings: [], notifications: [], loading: true, error: "" });
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -56,11 +59,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !session) { setValue((current) => ({ ...current, loading: false })); return; }
     setValue((current) => ({ ...current, loading: true, error: "" }));
+    const invitationsResult = await supabase.rpc("list_my_invitations");
+    const pendingInvitations = invitationsResult.error ? [] : ((invitationsResult.data ?? []) as Array<Record<string, unknown>>).map((invitation) => ({ id: String(invitation.id), organizationId: String(invitation.organization_id), organizationName: String(invitation.organization_name ?? "Holding"), role: roleMap[String(invitation.role)] ?? "viewer", expiresAt: String(invitation.expires_at) }));
     const membershipsResult = await supabase.from("organization_members").select("organization_id, role, joined_at").eq("user_id", session.user.id).order("joined_at", { ascending: true });
     if (membershipsResult.error) { setValue((current) => ({ ...current, loading: false, error: membershipsResult.error.message })); return; }
     const memberRows = (membershipsResult.data ?? []) as Array<Record<string, unknown>>;
     const memberOrganizationIds = memberRows.map((row) => String(row.organization_id));
-    if (!memberOrganizationIds.length) { setValue((current) => ({ ...current, organizationId: null, holdings: [], buildings: [], notifications: [], loading: false })); return; }
+    if (!memberOrganizationIds.length) { setValue((current) => ({ ...current, organizationId: null, holdings: [], pendingInvitations, buildings: [], notifications: [], loading: false })); return; }
     const organizationsResult = await supabase.from("organizations").select("id, name").in("id", memberOrganizationIds);
     if (organizationsResult.error) { setValue((current) => ({ ...current, loading: false, error: organizationsResult.error.message })); return; }
     const organizationNames = new Map((organizationsResult.data ?? []).map((organization) => [String(organization.id), String(organization.name)]));
@@ -79,7 +84,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       supabase.from("notifications").select("id, type, title, message, due_date, status, entity_id").eq("organization_id", organizationId).eq("status", "pending").order("due_date", { ascending: true }).limit(20),
     ]);
     const firstError = [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, notificationsResult].find((result) => result.error)?.error;
-    if (firstError) { setValue((current) => ({ ...current, organizationId, holdings, loading: false, error: firstError.message })); return; }
+    if (firstError) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, loading: false, error: firstError.message })); return; }
     const assets = (assetsResult.data ?? []) as Array<Record<string, unknown>>;
     const buildings = (buildingsResult.data ?? []) as Array<Record<string, unknown>>;
     const units = (unitsResult.data ?? []) as Array<Record<string, unknown>>;
@@ -106,12 +111,30 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       return { id: String(row.source_key ?? row.id), dbId: String(row.id), sourceKey: row.source_key ? String(row.source_key) : undefined, name: String(asset?.name ?? "Prédio"), city: String(row.city ?? ""), state: String(row.state ?? ""), value: Number(row.current_value ?? asset?.current_value ?? 0), units: unitsTotal, occupied, revenue: list.reduce((sum, unit) => sum + unit.rent, 0), expenses: 0, status: row.status === "for_sale" ? "venda" : "ativo", image: `db-${row.id}`, unitsData: list, sourceRows: list.length };
     });
     const profileName = profile.data?.full_name ? String(profile.data.full_name) : undefined;
-    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), holdings, role: selectedMembership.role, buildings: mappedBuildings, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
+    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), holdings, pendingInvitations, role: selectedMembership.role, buildings: mappedBuildings, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
   }, [activeOrganizationId, session]);
 
-  useEffect(() => { if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null })); }, [refresh, session]);
+  useEffect(() => { if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], buildings: [], notifications: [] })); }, [refresh, session]);
   const switchOrganization = useCallback((organizationId: string) => { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }, []);
-  const context = useMemo(() => ({ ...value, refresh, switchOrganization }), [refresh, switchOrganization, value]);
+  const acceptInvitation = useCallback(async (invitationId: string) => {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return { ok: false, message: "Supabase não configurado." };
+    const result = await supabase.rpc("accept_invitation", { invitation_id: invitationId });
+    if (result.error) return { ok: false, message: result.error.message };
+    const acceptedOrganizationId = String(result.data);
+    setActiveOrganizationId(acceptedOrganizationId);
+    window.localStorage.setItem("cardoso-active-organization", acceptedOrganizationId);
+    return { ok: true };
+  }, []);
+  const declineInvitation = useCallback(async (invitationId: string) => {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return { ok: false, message: "Supabase não configurado." };
+    const result = await supabase.rpc("decline_invitation", { invitation_id: invitationId });
+    if (result.error) return { ok: false, message: result.error.message };
+    await refresh();
+    return { ok: true };
+  }, [refresh]);
+  const context = useMemo(() => ({ ...value, refresh, switchOrganization, acceptInvitation, declineInvitation }), [acceptInvitation, declineInvitation, refresh, switchOrganization, value]);
   return <PortfolioContext.Provider value={context}>{children}</PortfolioContext.Provider>;
 }
 

@@ -27,6 +27,15 @@ button { cursor:pointer; }
 .holding-leave { color:#ff9b9b; }
 .holding-leave:disabled { color:var(--muted); cursor:not-allowed; }
 .holding-message { padding:7px 8px 3px; color:#ff9b9b; font-size:10px; line-height:1.4; }
+.invite-help { margin-top:12px; font-size:10px; line-height:1.5; }
+.holding-invites { padding-bottom:8px; margin-bottom:6px; border-bottom:1px solid var(--line); }
+.holding-invite { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px; border-radius:8px; background:rgba(98,182,255,.08); }
+.holding-invite strong { display:block; color:var(--text); font-size:11px; }
+.holding-invite small { display:block; color:var(--muted); font-size:9px; margin-top:3px; }
+.holding-invite-actions { display:flex; gap:4px; }
+.holding-invite-actions button { width:25px; height:25px; display:grid; place-items:center; border:1px solid transparent; border-radius:7px; color:var(--text); cursor:pointer; }
+.invite-accept { background:rgba(128,226,176,.16); color:var(--accent) !important; }
+.invite-decline { background:rgba(255,140,140,.13); color:var(--danger) !important; }
 .org-icon { width:26px; height:26px; display:grid; place-items:center; border-radius:8px; background:rgba(128,226,176,.12); color:var(--accent); }
 .org-meta { min-width:0; flex:1; }
 .org-meta strong { display:block; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

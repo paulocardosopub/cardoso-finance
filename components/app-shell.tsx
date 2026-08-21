@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Bell, Building2, ChevronDown, FileText, Home, Landmark, LayoutDashboard, LogOut, Menu, Settings2, Users, WalletCards, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { Bell, Building2, Check, ChevronDown, FileText, Home, Landmark, LayoutDashboard, LogOut, Menu, Settings2, Users, WalletCards, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { usePortfolio } from "@/components/portfolio-provider";
 
@@ -26,10 +25,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [holdingsOpen, setHoldingsOpen] = useState(false);
   const [holdingMessage, setHoldingMessage] = useState("");
-  const { organizationId, organizationName, userName, userInitials, holdings, role, notifications, switchOrganization, refresh } = usePortfolio();
+  const { organizationId, organizationName, userName, userInitials, holdings, pendingInvitations, role, notifications, switchOrganization, acceptInvitation, declineInvitation, refresh } = usePortfolio();
   const route = pathname.replace(/\/+$/, "");
   const isPublic = route.endsWith("/login") || route.endsWith("/onboarding");
   if (isPublic) return <>{children}</>;
+
   async function signOut() {
     const supabase = createSupabaseBrowserClient();
     await supabase?.auth.signOut();
@@ -43,19 +43,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (result.error) { setHoldingMessage(result.error.message); return; }
     const next = holdings.find((holding) => holding.id !== organizationId);
     setHoldingsOpen(false);
-    if (next) switchOrganization(next.id);
-    else await refresh();
+    if (next) switchOrganization(next.id); else await refresh();
   }
+  async function acceptHoldingInvitation(invitationId: string) {
+    const result = await acceptInvitation(invitationId);
+    setHoldingMessage(result.ok ? "Convite aceito. Holding adicionada à sua conta." : (result.message ?? "Não foi possível aceitar o convite."));
+    if (result.ok) setHoldingsOpen(false);
+  }
+  async function declineHoldingInvitation(invitationId: string) {
+    const result = await declineInvitation(invitationId);
+    setHoldingMessage(result.ok ? "Convite recusado." : (result.message ?? "Não foi possível recusar o convite."));
+  }
+
   return <div className="app-shell">
-    <aside className={`sidebar ${open ? "open" : ""}`}>
+    <aside className={open ? "sidebar open" : "sidebar"}>
       <div className="brand"><div className="brand-mark">C</div><div className="brand-name">Cardoso <span>Finance</span></div><button className="icon-btn mobile-menu" onClick={() => setOpen(false)} aria-label="Fechar menu"><X size={17} /></button></div>
-      <div className="org-switcher-shell"><button className="org-switcher" aria-expanded={holdingsOpen} onClick={() => { setHoldingsOpen((current) => !current); setHoldingMessage(""); }}><div className="org-icon"><Building2 size={14} /></div><div className="org-meta"><strong>{organizationName}</strong><small>Dados sincronizados</small></div><ChevronDown size={14} color="#8490a5" /></button>{holdingsOpen && <div className="holding-menu" role="menu"><div className="holding-menu-title">Suas holdings</div>{holdings.map((holding) => <button type="button" role="menuitem" key={holding.id} className={`holding-option ${holding.id === organizationId ? "active" : ""}`} onClick={() => { switchOrganization(holding.id); setHoldingsOpen(false); }}><span>{holding.name}</span><small>{holding.role}</small></button>)}<Link href="/organizacao" className="holding-action" onClick={() => setHoldingsOpen(false)}><Building2 size={14} /> Adicionar holding</Link><button type="button" className="holding-action holding-leave" onClick={() => void leaveHolding()} disabled={role === "owner"}><LogOut size={14} /> {role === "owner" ? "Proprietário da holding" : "Sair desta holding"}</button>{holdingMessage && <p className="holding-message">{holdingMessage}</p>}</div>}</div>
+      <div className="org-switcher-shell">
+        <button className="org-switcher" aria-expanded={holdingsOpen} onClick={() => { setHoldingsOpen((current) => !current); setHoldingMessage(""); }}><div className="org-icon"><Building2 size={14} /></div><div className="org-meta"><strong>{organizationName}</strong><small>Dados sincronizados</small></div><ChevronDown size={14} color="#8490a5" /></button>
+        {holdingsOpen && <div className="holding-menu" role="menu">
+          {pendingInvitations.length > 0 && <div className="holding-invites"><div className="holding-menu-title">Convites pendentes</div>{pendingInvitations.map((invitation) => <div className="holding-invite" key={invitation.id}><div><strong>{invitation.organizationName}</strong><small>Convite como {invitation.role}</small></div><div className="holding-invite-actions"><button type="button" className="invite-accept" onClick={() => void acceptHoldingInvitation(invitation.id)} aria-label={`Aceitar convite de ${invitation.organizationName}`}><Check size={13} /></button><button type="button" className="invite-decline" onClick={() => void declineHoldingInvitation(invitation.id)} aria-label={`Recusar convite de ${invitation.organizationName}`}><X size={13} /></button></div></div>)}</div>}
+          <div className="holding-menu-title">Suas holdings</div>
+          {holdings.map((holding) => <button type="button" role="menuitem" key={holding.id} className={holding.id === organizationId ? "holding-option active" : "holding-option"} onClick={() => { switchOrganization(holding.id); setHoldingsOpen(false); }}><span>{holding.name}</span><small>{holding.role}</small></button>)}
+          <Link href="/organizacao" className="holding-action" onClick={() => setHoldingsOpen(false)}><Building2 size={14} /> Adicionar holding</Link>
+          <button type="button" className="holding-action holding-leave" onClick={() => void leaveHolding()} disabled={role === "owner"}><LogOut size={14} /> {role === "owner" ? "Proprietário da holding" : "Sair desta holding"}</button>
+          {holdingMessage && <p className="holding-message">{holdingMessage}</p>}
+        </div>}
+      </div>
       <div className="nav-label">Visão geral</div>
-      <nav className="nav">{primaryNav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={`nav-link ${pathname === href || (href !== "/" && pathname.startsWith(href)) ? "active" : ""}`}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav>
+      <nav className="nav">{primaryNav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={pathname === href || (href !== "/" && pathname.startsWith(href)) ? "nav-link active" : "nav-link"}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav>
       <div className="nav-label" style={{ marginTop: 25 }}>Gestão</div>
-      <nav className="nav">{managementNav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={`nav-link ${pathname.startsWith(href) ? "active" : ""}`}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav>
+      <nav className="nav">{managementNav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={pathname.startsWith(href) ? "nav-link active" : "nav-link"}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav>
       <div className="sidebar-bottom"><div className="profile-mini"><div className="avatar">{userInitials}</div><div><strong>{userName}</strong><small>Conta autenticada</small></div><button className="icon-btn" onClick={signOut} aria-label="Sair"><LogOut size={14} /></button></div></div>
     </aside>
-    <main className="main"><header className="topbar"><button className="icon-btn mobile-menu" onClick={() => setOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button><div className="breadcrumb"><Home size={13} /><span>/</span><strong>{pathname === "/" ? "Visão geral" : pathname.slice(1).replaceAll("-", " ")}</strong></div><div className="top-actions"><button className={`icon-btn ${notifications.length ? "notification-dot" : ""}`} aria-label="Notificações"><Bell size={17} /></button><div className="avatar" style={{ width: 27, height: 27, fontSize: 10 }}>{userInitials}</div></div></header>{children}</main>
+    <main className="main"><header className="topbar"><button className="icon-btn mobile-menu" onClick={() => setOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button><div className="breadcrumb"><Home size={13} /><span>/</span><strong>{pathname === "/" ? "Visão geral" : pathname.slice(1).replaceAll("-", " ")}</strong></div><div className="top-actions"><button className={notifications.length ? "icon-btn notification-dot" : "icon-btn"} aria-label="Notificações"><Bell size={17} /></button><div className="avatar" style={{ width: 27, height: 27, fontSize: 10 }}>{userInitials}</div></div></header>{children}</main>
   </div>;
 }
