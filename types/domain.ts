@@ -1,6 +1,20 @@
 export type OrganizationType = "personal" | "family" | "company";
 export type MemberRole = "owner" | "admin" | "manager" | "viewer";
 export type UnitStatus = "alugado" | "vago" | "manutencao" | "servico" | "negociacao" | "venda" | "venda_alugado" | "vendido";
+export type ExpenseKind = "fixed" | "recurring" | "one_time";
+
+export type ExpenseRecord = {
+  id: string;
+  description: string;
+  category: string;
+  value: number;
+  expense_date: string;
+  competence?: string;
+  expense_kind: ExpenseKind;
+  responsible?: string;
+  responsible_user_id?: string;
+  building_id?: string;
+};
 
 export type Organization = {
   id: string;
