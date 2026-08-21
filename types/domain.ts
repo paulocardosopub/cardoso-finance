@@ -42,6 +42,8 @@ export type Building = {
   image: string;
   address?: string;
   postalCode?: string;
+  latitude?: number;
+  longitude?: number;
   description?: string;
   acquisitionDate?: string;
   acquisitionValue?: number;
