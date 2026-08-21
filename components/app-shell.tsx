@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, Building2, Check, ChevronDown, FileText, Home, Landmark, LayoutDashboard, LogOut, MapPinned, Menu, Receipt, Settings2, Users, WalletCards, X } from "lucide-react";
@@ -30,6 +30,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { organizationId, organizationName, userName, userInitials, userAvatarUrl, holdings, pendingInvitations, role, notifications, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation, refresh } = usePortfolio();
   const route = pathname.replace(/\/+$/, "");
   const isPublic = route.endsWith("/login") || route.endsWith("/onboarding");
+  useEffect(() => {
+    if (isPublic) return;
+    const key = `cardoso-scroll:${pathname}`;
+    const restore = () => {
+      const saved = Number(window.sessionStorage.getItem(key));
+      if (Number.isFinite(saved) && saved > 0) window.scrollTo({ top: saved, behavior: "auto" });
+    };
+    const save = () => window.sessionStorage.setItem(key, String(window.scrollY));
+    const onVisibility = () => { if (document.visibilityState === "visible") window.requestAnimationFrame(restore); else save(); };
+    window.history.scrollRestoration = "manual";
+    window.addEventListener("scroll", save, { passive: true });
+    document.addEventListener("visibilitychange", onVisibility);
+    window.requestAnimationFrame(restore);
+    return () => { save(); window.removeEventListener("scroll", save); document.removeEventListener("visibilitychange", onVisibility); };
+  }, [isPublic, pathname]);
   if (isPublic) return <>{children}</>;
 
   async function signOut() {

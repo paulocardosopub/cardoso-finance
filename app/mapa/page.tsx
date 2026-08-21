@@ -27,12 +27,14 @@ export default function MapaPage() {
   const selectedBuilding = buildings.find((building) => building.id === selectedId || building.dbId === selectedId) ?? buildings[0];
   const savedPins = useMemo<PropertyMapPin[]>(() => buildings.filter((building) => Number.isFinite(building.latitude) && Number.isFinite(building.longitude)).map((building) => ({ id: building.id, name: building.name, latitude: Number(building.latitude), longitude: Number(building.longitude), status: building.status, city: `${building.city}${building.state ? `, ${building.state}` : ""}`, address: building.address, googleMapsUrl: mapsUrl(Number(building.latitude), Number(building.longitude)) })), [buildings]);
   const pins = useMemo<PropertyMapPin[]>(() => {
-    const nextPins = [...savedPins];
     const previewLatitude = Number(form.latitude.replace(",", "."));
     const previewLongitude = Number(form.longitude.replace(",", "."));
     const hasSavedPin = selectedBuilding && savedPins.some((pin) => pin.id === selectedBuilding.id);
-    if (selectedBuilding && !hasSavedPin && Number.isFinite(previewLatitude) && Number.isFinite(previewLongitude)) nextPins.push({ id: selectedBuilding.id, name: `${selectedBuilding.name} (novo pin)`, latitude: previewLatitude, longitude: previewLongitude, status: selectedBuilding.status, city: `${form.city}${form.state ? `, ${form.state}` : ""}`, address: form.address, googleMapsUrl: mapsUrl(previewLatitude, previewLongitude) });
-    return nextPins;
+    if (selectedBuilding && Number.isFinite(previewLatitude) && Number.isFinite(previewLongitude)) {
+      if (hasSavedPin) return savedPins.map((pin) => pin.id === selectedBuilding.id ? { ...pin, latitude: previewLatitude, longitude: previewLongitude, googleMapsUrl: mapsUrl(previewLatitude, previewLongitude) } : pin);
+      return [...savedPins, { id: selectedBuilding.id, name: `${selectedBuilding.name} (novo pin)`, latitude: previewLatitude, longitude: previewLongitude, status: selectedBuilding.status, city: `${form.city}${form.state ? `, ${form.state}` : ""}`, address: form.address, googleMapsUrl: mapsUrl(previewLatitude, previewLongitude) }];
+    }
+    return savedPins;
   }, [form.address, form.city, form.latitude, form.longitude, form.state, savedPins, selectedBuilding]);
 
   useEffect(() => {
@@ -52,15 +54,36 @@ export default function MapaPage() {
       let resolvedAddress = form.address;
       let resolvedCity = form.city;
       let resolvedState = form.state;
+      let preciseCoordinates: { latitude: number; longitude: number } | undefined;
       if (postalCode.length === 8) {
-        const viaCep = await fetch(`https://viacep.com.br/ws/${postalCode}/json/`, { headers: { Accept: "application/json" } });
-        const cepData = await viaCep.json() as { erro?: boolean; logradouro?: string; bairro?: string; localidade?: string; uf?: string };
-        if (!cepData.erro) {
+        let coordinateData: { address?: string; district?: string; city?: string; state?: string; lat?: string; lng?: string } = {};
+        try {
+          const coordinateCep = await fetch(`https://cep.awesomeapi.com.br/json/${postalCode}`, { headers: { Accept: "application/json" } });
+          if (coordinateCep.ok) coordinateData = await coordinateCep.json() as typeof coordinateData;
+        } catch { /* ViaCEP abaixo continua como fallback. */ }
+        if (coordinateData.address || coordinateData.city) {
+          resolvedAddress = [coordinateData.address, coordinateData.district].filter(Boolean).join(" - ") || resolvedAddress;
+          resolvedCity = coordinateData.city || resolvedCity;
+          resolvedState = coordinateData.state || resolvedState;
+          const latitude = Number(coordinateData.lat);
+          const longitude = Number(coordinateData.lng);
+          if (Number.isFinite(latitude) && Number.isFinite(longitude)) preciseCoordinates = { latitude, longitude };
+        }
+        const viaCep = preciseCoordinates ? null : await fetch(`https://viacep.com.br/ws/${postalCode}/json/`, { headers: { Accept: "application/json" } });
+        const cepData = viaCep ? await viaCep.json() as { erro?: boolean; logradouro?: string; bairro?: string; localidade?: string; uf?: string } : undefined;
+        if (cepData && !cepData.erro) {
           resolvedAddress = [cepData.logradouro, cepData.bairro].filter(Boolean).join(" - ") || resolvedAddress;
           resolvedCity = cepData.localidade || resolvedCity;
           resolvedState = cepData.uf || resolvedState;
+        }
+        if (resolvedAddress !== form.address || resolvedCity !== form.city || resolvedState !== form.state) {
           setForm((current) => ({ ...current, address: resolvedAddress, city: resolvedCity, state: resolvedState, postalCode: `${postalCode.slice(0, 5)}-${postalCode.slice(5)}` }));
         }
+      }
+      if (preciseCoordinates) {
+        setForm((current) => ({ ...current, address: resolvedAddress, city: resolvedCity, state: resolvedState, postalCode: `${postalCode.slice(0, 5)}-${postalCode.slice(5)}`, latitude: String(preciseCoordinates?.latitude), longitude: String(preciseCoordinates?.longitude) }));
+        setMessage(`Área localizada para o CEP ${postalCode.slice(0, 5)}-${postalCode.slice(5)}. Arraste o pin até o imóvel e salve.`);
+        return;
       }
       const addressBase = resolvedAddress.split(" - ")[0].trim();
       const geocodeQueries = [
@@ -109,7 +132,9 @@ export default function MapaPage() {
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando mapa...</p></div></div>;
   if (!organizationId) return <div className="content"><div className="empty-state"><h3>Nenhuma organização selecionada</h3><p>Entre em uma holding para visualizar os imóveis no mapa.</p></div></div>;
 
-  const selectedPin = selectedBuilding && Number.isFinite(selectedBuilding.latitude) && Number.isFinite(selectedBuilding.longitude) ? mapsUrl(Number(selectedBuilding.latitude), Number(selectedBuilding.longitude)) : "";
+  const selectedLatitude = Number(form.latitude.replace(",", "."));
+  const selectedLongitude = Number(form.longitude.replace(",", "."));
+  const selectedPin = Number.isFinite(selectedLatitude) && Number.isFinite(selectedLongitude) ? mapsUrl(selectedLatitude, selectedLongitude) : "";
   return <div className="content"><div className="page-heading"><div><div className="eyebrow"><MapPinned size={13} /> Localização da carteira</div><h1>Mapa</h1><p className="subtitle">Visualize os prédios com localização cadastrada e marque novos endereços.</p></div></div>
     {message && <p className={message.startsWith("Não") || message.startsWith("Informe") || message.startsWith("Seu") ? "form-error" : "form-success"}>{message}</p>}
     <div className="map-layout"><section className="panel map-panel"><div className="panel-heading"><div><h2>Imóveis no mapa</h2><p>{pins.length} de {buildings.length} prédios com localização · arraste qualquer pin para ajustar</p></div><MapPinned size={17} color="#80e2b0" /></div><PropertyMap pins={pins} onSelect={setSelectedId} onMove={movePin} />{pins.length === 0 && <div className="map-empty"><LocateFixed size={20} /><span>Nenhum imóvel tem coordenadas ainda. Selecione um prédio ao lado e use “Localizar endereço”.</span></div>}</section>
