@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, Building2, Check, ChevronDown, FileText, Home, Landmark, LayoutDashboard, LogOut, Menu, Settings2, Users, WalletCards, X } from "lucide-react";
+import { Bell, Building2, Check, ChevronDown, FileText, Home, Landmark, LayoutDashboard, LogOut, Menu, Receipt, Settings2, Users, WalletCards, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { usePortfolio } from "@/components/portfolio-provider";
 
@@ -12,6 +12,7 @@ const primaryNav = [
   { href: "/patrimonio", label: "Patrimônio", icon: Landmark },
   { href: "/imoveis", label: "Imóveis", icon: Building2 },
   { href: "/financeiro", label: "Financeiro", icon: WalletCards },
+  { href: "/despesas", label: "Despesas", icon: Receipt },
 ];
 const managementNav = [
   { href: "/organizacao", label: "Organização", icon: Users },
