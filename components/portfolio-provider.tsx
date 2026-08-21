@@ -11,7 +11,7 @@ type PortfolioContextValue = {
   userName: string;
   userInitials: string;
   holdings: Array<{ id: string; name: string; role: MemberRole }>;
-  pendingInvitations: Array<{ id: string; organizationId: string; organizationName: string; role: MemberRole; expiresAt: string }>;
+  pendingInvitations: PendingInvitation[];
   role: MemberRole;
   buildings: Building[];
   notifications: NotificationItem[];
@@ -22,6 +22,8 @@ type PortfolioContextValue = {
   acceptInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>;
   declineInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>;
 };
+
+type PendingInvitation = { id: string; organizationId: string; organizationName: string; role: MemberRole; expiresAt: string };
 
 const PortfolioContext = createContext<PortfolioContextValue | null>(null);
 
@@ -42,6 +44,10 @@ function initials(session: Session | null, profileName?: string) {
   return raw.slice(0, 2).toUpperCase();
 }
 
+function mapPendingInvitations(data: unknown): PendingInvitation[] {
+  return ((data ?? []) as Array<Record<string, unknown>>).map((invitation) => ({ id: String(invitation.id), organizationId: String(invitation.organization_id), organizationName: String(invitation.organization_name ?? "Holding"), role: roleMap[String(invitation.role)] ?? "viewer", expiresAt: String(invitation.expires_at) }));
+}
+
 export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("cardoso-active-organization"));
@@ -60,7 +66,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     if (!supabase || !session) { setValue((current) => ({ ...current, loading: false })); return; }
     setValue((current) => ({ ...current, loading: true, error: "" }));
     const invitationsResult = await supabase.rpc("list_my_invitations");
-    const pendingInvitations = invitationsResult.error ? [] : ((invitationsResult.data ?? []) as Array<Record<string, unknown>>).map((invitation) => ({ id: String(invitation.id), organizationId: String(invitation.organization_id), organizationName: String(invitation.organization_name ?? "Holding"), role: roleMap[String(invitation.role)] ?? "viewer", expiresAt: String(invitation.expires_at) }));
+    const pendingInvitations = invitationsResult.error ? [] : mapPendingInvitations(invitationsResult.data);
     const membershipsResult = await supabase.from("organization_members").select("organization_id, role, joined_at").eq("user_id", session.user.id).order("joined_at", { ascending: true });
     if (membershipsResult.error) { setValue((current) => ({ ...current, loading: false, error: membershipsResult.error.message })); return; }
     const memberRows = (membershipsResult.data ?? []) as Array<Record<string, unknown>>;
@@ -115,6 +121,16 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   }, [activeOrganizationId, session]);
 
   useEffect(() => { if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], buildings: [], notifications: [] })); }, [refresh, session]);
+  useEffect(() => {
+    if (!session) return;
+    const interval = window.setInterval(async () => {
+      const supabase = createSupabaseBrowserClient();
+      if (!supabase) return;
+      const result = await supabase.rpc("list_my_invitations");
+      if (!result.error) setValue((current) => ({ ...current, pendingInvitations: mapPendingInvitations(result.data) }));
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, [session]);
   const switchOrganization = useCallback((organizationId: string) => { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }, []);
   const acceptInvitation = useCallback(async (invitationId: string) => {
     const supabase = createSupabaseBrowserClient();
