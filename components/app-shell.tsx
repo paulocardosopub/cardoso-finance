@@ -26,6 +26,7 @@ const memberNav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/imoveis", label: "Imóveis", icon: Building2 },
   { href: "/patrimonio", label: "Patrimônio", icon: Landmark },
+  { href: "/despesas", label: "Despesas", icon: Receipt },
   { href: "/mapa", label: "Mapas", icon: MapPinned },
   { href: "/documentos", label: "Documentos", icon: FileText },
 ];

@@ -1,10 +1,11 @@
 "use client";
 
-import { Building2, CheckCircle2, MailPlus, Plus, ShieldCheck, Trash2, UserRoundPlus, Users, X } from "lucide-react";
+import { Building2, CheckCircle2, Eye, MailPlus, Plus, Save, ShieldCheck, Trash2, UserRoundPlus, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { syncInitialPortfolio } from "@/lib/portfolio-sync";
+import type { MemberVisibility } from "@/types/domain";
 
 type MemberRole = "owner" | "admin" | "manager" | "viewer";
 
@@ -28,7 +29,7 @@ const roleLabels: Record<MemberRole, string> = {
 };
 
 export default function OrganizationPage() {
-  const { organizationId, organizationName, role, refresh } = usePortfolio();
+  const { organizationId, organizationName, role, memberVisibility, refresh } = usePortfolio();
   const [members, setMembers] = useState<Member[]>([]);
   const [email, setEmail] = useState("");
   const [holdingName, setHoldingName] = useState("");
@@ -43,6 +44,10 @@ export default function OrganizationPage() {
   const [placeholderSaving, setPlaceholderSaving] = useState(false);
   const [deletingMember, setDeletingMember] = useState<Member | null>(null);
   const [replacementId, setReplacementId] = useState("");
+  const [visibility, setVisibility] = useState<MemberVisibility>(memberVisibility);
+  const [visibilitySaving, setVisibilitySaving] = useState(false);
+
+  useEffect(() => { setVisibility(memberVisibility); }, [memberVisibility]);
 
   async function loadMembers() {
     if (!organizationId) return;
@@ -157,7 +162,19 @@ export default function OrganizationPage() {
     await refresh();
   }
 
+  async function saveMemberVisibility() {
+    if (!organizationId || (role !== "owner" && role !== "admin" && role !== "manager")) return;
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    setVisibilitySaving(true);
+    const result = await supabase.rpc("update_member_visibility", { target_org: organizationId, total_assets: visibility.showTotalAssets, property_values: visibility.showPropertyValues, rental_info: visibility.showRentalInfo, property_status: visibility.showPropertyStatus, photos: visibility.showPhotos, locations: visibility.showLocations, map_visible: visibility.showMap, documents_visible: visibility.showDocuments, ownership_by_beneficiary: visibility.showOwnershipByBeneficiary });
+    setMessage(result.error ? (result.error.message === "not_authorized" ? "Seu perfil não pode alterar a privacidade dos membros." : "Não foi possível salvar a privacidade dos membros.") : "Privacidade dos Membros atualizada.");
+    if (!result.error) await refresh();
+    setVisibilitySaving(false);
+  }
+
   const canManage = role === "owner" || role === "admin";
+  const canEditPrivacy = role === "owner" || role === "admin" || role === "manager";
   const ownershipTotal = members.reduce((total, member) => total + Number(member.ownership_percentage || 0), 0);
   const replacementOptions = members.filter((member) => member.member_id !== deletingMember?.member_id);
 
@@ -175,6 +192,17 @@ export default function OrganizationPage() {
       </div>
       <div className="panel"><div className="panel-heading"><div><h2>Acesso</h2><p>Convites e membros planejados</p></div><Building2 size={17} color="#80e2b0" /></div><div className="setting-row"><span>Organização ativa</span><strong>{organizationName}</strong></div><div className="setting-row"><span>Seu perfil</span><strong>{roleLabels[role as MemberRole] ?? role}</strong></div><div className="setting-row"><span>Proteção</span><strong className="positive">RLS ativo</strong></div><div className="setting-row"><span>Convidar usuário cadastrado</span><span style={{ display: "flex", gap: 6 }}><input className="table-filter" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="e-mail da conta" type="email" /><button className="icon-btn" onClick={() => void invite()} disabled={!canManage || inviteLoading || !email.trim()} aria-label="Enviar convite"><MailPlus size={15} /></button></span></div><p className="muted invite-help">O e-mail é verificado antes do convite. A pessoa aceita ou recusa pelo menu de holdings.</p><div className="setting-row setting-row-stack"><span><strong>Adicionar membro sem acesso</strong><small className="member-email">Cadastre sócio, responsável ou bot antes de ele criar a conta.</small></span><UserRoundPlus size={16} color="#80e2b0" /></div><div className="form-grid compact-form"><label>Nome<input value={placeholderName} onChange={(event) => setPlaceholderName(event.target.value)} placeholder="Nome do sócio" /></label><label>E-mail (opcional)<input type="email" value={placeholderEmail} onChange={(event) => setPlaceholderEmail(event.target.value)} placeholder="e-mail futuro" /></label><label>Função<select value={placeholderRole} onChange={(event) => setPlaceholderRole(event.target.value as MemberRole)}><option value="viewer">Membro</option><option value="manager">Gestor</option><option value="admin">Administrador</option></select></label><div className="onboarding-actions compact-actions"><span className="muted">Participação igual automática</span><button type="button" className="button button-primary" onClick={() => void createPlaceholder()} disabled={!canManage || placeholderSaving || !placeholderName.trim()}>{placeholderSaving ? "Criando…" : "Criar membro"}</button></div></div></div>
     </div>
+    {canEditPrivacy && <section className="panel member-visibility-panel section-gap"><div className="panel-heading"><div><h2>Privacidade dos Membros</h2><p>Defina quais janelas e informações consolidadas os Membros desta holding podem consultar.</p></div><Eye size={17} color="#80e2b0" /></div><div className="visibility-options">{([
+      ["showTotalAssets", "Patrimônio total proporcional", "Exibe o patrimônio conforme a participação de cada Membro."],
+      ["showPropertyValues", "Valores individuais dos imóveis", "Exibe avaliação proporcional por imóvel."],
+      ["showRentalInfo", "Informações de aluguel", "Exibe a receita líquida mensal proporcional, após despesas."],
+      ["showPropertyStatus", "Status dos imóveis", "Exibe ocupação e situação dos imóveis."],
+      ["showPhotos", "Fotos", "Libera fotos autorizadas."],
+      ["showLocations", "Localizações", "Exibe endereço, cidade e estado."],
+      ["showMap", "Mapa", "Libera o mapa e os marcadores."],
+      ["showDocuments", "Documentos", "Libera documentos autorizados."],
+      ["showOwnershipByBeneficiary", "Participações por beneficiário", "Exibe a divisão percentual consolidada."],
+    ] as Array<[keyof MemberVisibility, string, string]>).map(([key, label, description]) => <label className="visibility-option" key={key}><span><strong>{label}</strong><small>{description}</small></span><input type="checkbox" checked={visibility[key]} onChange={() => setVisibility((current) => ({ ...current, [key]: !current[key] }))} /></label>)}</div><div className="onboarding-actions"><span className="muted">As alterações afetam todos os Membros desta holding.</span><button type="button" className="button button-primary" onClick={() => void saveMemberVisibility()} disabled={visibilitySaving}><Save size={14} /> {visibilitySaving ? "Salvando…" : "Salvar privacidade"}</button></div></section>}
     {deletingMember && <div className="modal-backdrop"><section className="edit-modal"><div className="panel-heading"><div><h2>Remover membro sem acesso</h2><p>O que deseja fazer com as responsabilidades, receitas e despesas de {deletingMember.full_name}?</p></div><button type="button" className="icon-btn" onClick={() => setDeletingMember(null)} aria-label="Fechar"><X size={16} /></button></div><label className="form-grid-label">Atribuir a outro sócio<select className="filter-select full-width" value={replacementId} onChange={(event) => setReplacementId(event.target.value)}><option value="">Não atribuir · Holding</option>{replacementOptions.map((member) => <option key={member.member_id} value={member.member_id}>{member.full_name} · {Number(member.ownership_percentage || 0).toFixed(2).replace(".", ",")}%</option>)}</select></label><p className="muted organization-note">As despesas vinculadas serão transferidas para a pessoa escolhida. A participação será redistribuída entre os membros restantes.</p><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={() => setDeletingMember(null)}>Cancelar</button><button type="button" className="button button-primary" onClick={() => void deletePlaceholder()}>Confirmar remoção</button></div></section></div>}
   </div>;
 }

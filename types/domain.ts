@@ -40,6 +40,19 @@ export type ExpenseRecord = {
   responsibilities?: Array<{ user_id?: string; contact_id?: string; share_percentage: number }>;
 };
 
+export type MemberExpenseRecord = {
+  id: string;
+  description: string;
+  category: string;
+  value: number;
+  expense_date: string;
+  expense_kind: ExpenseKind;
+  responsible: "Holding" | "Sua responsabilidade";
+  building_id?: string | null;
+  is_holding_expense: boolean;
+  member_share: number;
+};
+
 export type LeasePaymentRecord = {
   id: string;
   leaseId: string;
