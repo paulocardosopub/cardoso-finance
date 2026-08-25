@@ -6,6 +6,9 @@ returns jsonb language plpgsql stable security definer set search_path = public 
 declare
   viewer_role public.member_role;
   viewer_ownership numeric(7,4) := 0;
+  ownership_total numeric := 0;
+  member_weight numeric := 0;
+  member_monthly_expenses numeric := 0;
   settings public.member_visibility_settings%rowtype;
   result jsonb;
 begin
@@ -15,6 +18,39 @@ begin
   where organization_id = target_org and user_id = auth.uid();
   if viewer_role is null then raise exception 'not_authorized'; end if;
   if viewer_role <> 'viewer' then raise exception 'member_endpoint_only'; end if;
+
+  select coalesce(sum(ownership_percentage), 0)
+  into ownership_total
+  from (
+    select ownership_percentage from public.organization_members where organization_id = target_org
+    union all
+    select ownership_percentage from public.organization_contacts where organization_id = target_org
+  ) members;
+  member_weight := case when ownership_total > 0 then viewer_ownership / ownership_total else 0 end;
+
+  select coalesce(sum(
+    case
+      when exists (
+        select 1 from public.expense_responsibilities er
+        where er.expense_id = e.id and er.organization_id = target_org
+      ) then coalesce((
+        select sum(er.share_percentage)
+        from public.expense_responsibilities er
+        where er.expense_id = e.id
+          and er.organization_id = target_org
+          and er.user_id = auth.uid()
+      ), 0) * e.value / 100
+      when e.responsible_user_id = auth.uid() then e.value
+      when e.responsible_user_id is not null or e.responsible_contact_id is not null then 0
+      else e.value * member_weight
+    end
+  ), 0)
+  into member_monthly_expenses
+  from public.expenses e
+  where e.organization_id = target_org
+    and (coalesce(e.expense_kind, 'recurring') <> 'one_time'
+      or e.expense_date >= date_trunc('month', current_date)::date
+      and e.expense_date < (date_trunc('month', current_date) + interval '1 month')::date);
 
   select * into settings from public.member_visibility_settings where organization_id = target_org;
   if not found then
@@ -56,7 +92,7 @@ begin
         'quantity', u.quantity,
         'status', case when settings.show_property_status then u.status::text else null end,
         'rent', case when settings.show_rental_info
-          then round(r.gross_rent * viewer_ownership / 100, 2)
+          then round(r.gross_rent * member_weight, 2)
           else 0
         end
       ) as item
@@ -116,12 +152,19 @@ begin
       'totalValue', case when settings.show_total_assets then coalesce((select sum(current_value) from public.buildings where organization_id = target_org and status <> 'sold'), 0) else 0 end,
       'totalBuildings', (select count(*) from public.buildings where organization_id = target_org and status <> 'sold'),
       'totalUnits', (select coalesce(sum(u.quantity), 0) from public.property_units u join public.buildings b on b.id = u.building_id where u.organization_id = target_org and b.status <> 'sold'),
-      'totalRent', case when settings.show_rental_info then coalesce((
-        select sum(round(r.gross_rent * viewer_ownership / 100, 2))
+      'grossRent', case when settings.show_rental_info then coalesce((
+        select sum(round(r.gross_rent * member_weight, 2))
         from monthly_unit_rents r
         join public.buildings b on b.id = r.building_id
         where b.status <> 'sold'
       ), 0) else 0 end,
+      'totalRent', case when settings.show_rental_info then coalesce((
+        select sum(round(r.gross_rent * member_weight, 2))
+        from monthly_unit_rents r
+        join public.buildings b on b.id = r.building_id
+        where b.status <> 'sold'
+      ), 0) - member_monthly_expenses else 0 end,
+      'monthlyExpenses', case when settings.show_rental_info then member_monthly_expenses else 0 end,
       'ownershipPercentage', viewer_ownership
     ),
     'buildings', coalesce((select jsonb_agg(item order by item ->> 'name') from building_rows), '[]'::jsonb),

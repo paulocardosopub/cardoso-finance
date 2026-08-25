@@ -79,12 +79,12 @@ function visibilityFromRow(row: Record<string, unknown> | null | undefined): Mem
   };
 }
 
-function mapMemberBuildings(rows: Array<Record<string, unknown>>): Building[] {
+function mapMemberBuildings(rows: Array<Record<string, unknown>>, rentFactor = 1): Building[] {
   const buildingStatusMap: Record<string, Building["status"]> = { active: "ativo", renovation: "reforma", for_sale: "venda", sold: "vendido", inactive: "inativo" };
   return sortBuildings(rows.map((row) => {
     const units = ((row.units ?? []) as Array<Record<string, unknown>>).map((unit): PropertyUnit => {
       const baseStatus = unit.status ? statusMap[String(unit.status)] ?? "vago" : "vago";
-      const rent = Number(unit.rent ?? 0);
+      const rent = Number(unit.rent ?? 0) * rentFactor;
       return { id: String(unit.id), code: String(unit.code), type: String(unit.type ?? "Unidade"), area: 0, status: baseStatus === "venda" && rent > 0 ? "venda_alugado" : baseStatus, rent, quantity: Number(unit.quantity ?? 1) };
     });
     const unitsTotal = units.reduce((sum, unit) => sum + (unit.quantity ?? 1), 0) || Number(row.total_units ?? 0);
@@ -150,9 +150,12 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       const memberData = (memberResult.data ?? {}) as Record<string, unknown>;
       const summary = (memberData.summary ?? {}) as Record<string, unknown>;
       const memberVisibility = visibilityFromRow((memberData.settings ?? {}) as Record<string, unknown>);
-      const memberSummary = { totalValue: Number(summary.totalValue ?? 0), totalBuildings: Number(summary.totalBuildings ?? 0), totalUnits: Number(summary.totalUnits ?? 0), totalRent: Number(summary.totalRent ?? 0), ownershipPercentage: Number(summary.ownershipPercentage ?? 0) };
+      const totalRent = Number(summary.totalRent ?? 0);
+      const grossRent = Number(summary.grossRent ?? totalRent);
+      const memberSummary = { totalValue: Number(summary.totalValue ?? 0), totalBuildings: Number(summary.totalBuildings ?? 0), totalUnits: Number(summary.totalUnits ?? 0), totalRent, ownershipPercentage: Number(summary.ownershipPercentage ?? 0) };
+      const rentFactor = grossRent !== 0 ? totalRent / grossRent : 0;
       const ownershipSummary = ((memberData.ownership ?? []) as Array<Record<string, unknown>>).map((item) => ({ name: String(item.name ?? "Membro"), percentage: Number(item.percentage ?? 0) }));
-      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "viewer", memberVisibility, memberSummary, ownershipSummary, buildings: mapMemberBuildings((memberData.buildings ?? []) as Array<Record<string, unknown>>), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
+      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "viewer", memberVisibility, memberSummary, ownershipSummary, buildings: mapMemberBuildings((memberData.buildings ?? []) as Array<Record<string, unknown>>, rentFactor), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
       return;
     }
     const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, distributionsResult, distributionItemsResult, bankAccountResult, visibilityResult] = await Promise.all([
