@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Building2, CheckCircle2, MapPin, Plus, Save, Search, SlidersHorizontal, X } from "lucide-react";
+import { Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, MapPin, Plus, Save, Search, SlidersHorizontal, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { brl, compactBrl } from "@/lib/format";
@@ -97,7 +97,7 @@ export default function ImoveisPage() {
   }
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando imóveis...</p></div></div>;
   if (!organizationId) return <div className="content"><div className="empty-state"><h3>Nenhuma organização selecionada</h3><p>Crie uma organização para importar e gerenciar os imóveis.</p><Link href="/onboarding" className="button button-primary">Começar</Link></div></div>;
-  if (role === "employee") return <EmployeeProperties buildings={buildings} buildingPhotos={buildingPhotos} query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} regionFilter={regionFilter} setRegionFilter={setRegionFilter} />;
+  if (role === "employee") return <EmployeeProperties organizationId={organizationId} buildings={buildings} buildingPhotos={buildingPhotos} query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} regionFilter={regionFilter} setRegionFilter={setRegionFilter} />;
   const showMemberValues = role !== "viewer" || memberVisibility.showPropertyValues;
   const showMemberRent = role !== "viewer" || memberVisibility.showRentalInfo;
   const showMemberStatus = role !== "viewer" || memberVisibility.showPropertyStatus;
@@ -115,12 +115,27 @@ function regionLabel(building: Pick<Building, "city" | "state">) {
   return [building.state, building.city].filter(Boolean).join(" · ") || "Sem região";
 }
 
-function EmployeeProperties({ buildings, buildingPhotos, query, setQuery, filter, setFilter, regionFilter, setRegionFilter }: { buildings: Building[]; buildingPhotos: Record<string, string>; query: string; setQuery: (value: string) => void; filter: string; setFilter: (value: string) => void; regionFilter: string; setRegionFilter: (value: string) => void }) {
+function EmployeeProperties({ organizationId, buildings, buildingPhotos, query, setQuery, filter, setFilter, regionFilter, setRegionFilter }: { organizationId: string; buildings: Building[]; buildingPhotos: Record<string, string>; query: string; setQuery: (value: string) => void; filter: string; setFilter: (value: string) => void; regionFilter: string; setRegionFilter: (value: string) => void }) {
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+  });
+  const [payments, setPayments] = useState<Array<{ lease_id: string; expected_amount: number; received_amount: number; net_amount: number; status: string }>>([]);
+
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase || !organizationId) return;
+    supabase.from("lease_payments").select("lease_id, expected_amount, received_amount, net_amount, status").eq("organization_id", organizationId).eq("competence", selectedMonth + "-01").then(({ data }) => {
+      setPayments((data ?? []) as Array<{ lease_id: string; expected_amount: number; received_amount: number; net_amount: number; status: string }>);
+    });
+  }, [organizationId, selectedMonth]);
+
+  const paymentByLease = useMemo(() => new Map(payments.map((payment) => [String(payment.lease_id), payment])), [payments]);
   const regions = useMemo(() => [...new Set(buildings.filter((building) => building.status !== "vendido").map(regionLabel))].sort((left, right) => left.localeCompare(right, "pt-BR")), [buildings]);
   const visible = useMemo(() => buildings.filter((building) => {
     if (filter === "vendidos") return building.status === "vendido";
     if (building.status === "vendido") return false;
-    const text = `${building.name} ${building.city} ${building.state}`.toLowerCase();
+    const text = (building.name + " " + building.city + " " + building.state).toLowerCase();
     const matches = text.includes(query.toLowerCase());
     const matchesRegion = regionFilter === "todas" || regionLabel(building) === regionFilter;
     const units = building.unitsData ?? [];
@@ -129,6 +144,47 @@ function EmployeeProperties({ buildings, buildingPhotos, query, setQuery, filter
     return matches && matchesRegion && (filter === "todos" || (filter === "ocupados" && occupied) || (filter === "vagos" && !occupied) || (filter === "venda" && forSale));
   }), [buildings, filter, query, regionFilter]);
   const orderedVisible = useMemo(() => [...visible].sort((left, right) => regionLabel(left).localeCompare(regionLabel(right), "pt-BR") || left.name.localeCompare(right.name, "pt-BR")), [visible]);
-  return <div className="content"><div className="page-heading"><div><div className="eyebrow"><Building2 size={13} /> Operação imobiliária</div><h1>Imóveis</h1><p className="subtitle">Consulte e atualize ocupação, aluguel, inquilinos, fotos e contratos.</p></div></div><div className="metrics"><div className="metric-card"><div className="metric-top"><span>Imóveis</span><span className="metric-icon"><Building2 size={15} /></span></div><div className="metric-value">{buildings.length}</div><div className="metric-foot">Carteira operacional</div></div><div className="metric-card"><div className="metric-top"><span>Ocupados</span><span className="metric-icon">✓</span></div><div className="metric-value">{buildings.reduce((sum, building) => sum + (building.unitsData ?? []).filter((unit) => unit.status === "alugado" || unit.status === "venda_alugado" || unit.lease).length, 0)}</div><div className="metric-foot">Unidades com inquilino</div></div><div className="metric-card"><div className="metric-top"><span>À venda</span><span className="metric-icon">$</span></div><div className="metric-value">{buildings.filter(isForSale).length}</div><div className="metric-foot">Imóveis ou unidades</div></div></div><div className="panel"><div className="panel-heading"><div><h2>Carteira operacional</h2><p>{visible.length} imóveis encontrados · valores sincronizados</p></div><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><label className="search-inline"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar imóvel" /></label><select className="filter-select" value={regionFilter} onChange={(event) => setRegionFilter(event.target.value)}><option value="todas">Todas as regiões</option>{regions.map((region) => <option key={region} value={region}>{region}</option>)}</select><select className="filter-select" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="todos">Todos</option><option value="ocupados">Ocupados</option><option value="vagos">Vagos</option><option value="venda">À venda</option></select></div></div><div className="building-list">{orderedVisible.map((building) => <Link href={buildingPath(building)} key={building.id} className={`building-row ${isForSale(building) ? "sale-row" : ""}`}><div className="building-thumb" style={{ width: 62, height: 62 }}>{buildingPhotos[building.id] ? <img src={buildingPhotos[building.id]} alt={`Foto de ${building.name}`} /> : <Building2 size={18} />}</div><div className="building-info"><strong>{building.name}</strong><small>{regionLabel(building)} · {building.units} unidades</small><div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}><span className="tag">{building.occupied} ocupadas</span><span className="tag">{Math.max(0, building.units - building.occupied)} livres</span>{isForSale(building) && <span className="tag sale-tag">À venda</span>}</div></div><div className="building-value"><strong>{brl(building.revenue)}</strong><small>aluguéis / mês</small></div></Link>)}</div></div></div>;
-}
 
+  function monthLabel(month: string) {
+    return new Date(month + "-01T12:00:00").toLocaleDateString("pt-BR", { month: "long", year: "numeric" }).replace(/^./, (letter) => letter.toUpperCase());
+  }
+  function changeMonth(offset: number) {
+    const date = new Date(selectedMonth + "-01T12:00:00");
+    date.setMonth(date.getMonth() + offset);
+    setSelectedMonth(date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0"));
+  }
+  function buildingTotals(building: Building) {
+    return (building.unitsData ?? []).reduce((totals, unit) => {
+      if (unit.rent <= 0) return totals;
+      const expected = unit.rent * (unit.quantity ?? 1);
+      const payment = unit.lease?.id ? paymentByLease.get(unit.lease.id) : undefined;
+      const received = payment && (payment.status === "paid" || Number(payment.received_amount) > 0) ? Number(payment.net_amount || payment.received_amount || 0) : 0;
+      return { expected: totals.expected + expected, received: totals.received + received };
+    }, { expected: 0, received: 0 });
+  }
+
+  const monthTotal = orderedVisible.reduce((sum, building) => {
+    const totals = buildingTotals(building);
+    return { expected: sum.expected + totals.expected, received: sum.received + totals.received };
+  }, { expected: 0, received: 0 });
+
+  return <div className="content">
+    <div className="page-heading">
+      <div><div className="eyebrow"><Building2 size={13} /> Operação imobiliária</div><h1>Imóveis</h1><p className="subtitle">Consulte e atualize ocupação, aluguel, inquilinos, fotos e contratos.</p></div>
+      <div className="month-navigator"><button type="button" className="icon-btn" onClick={() => changeMonth(-1)} aria-label="Mês anterior"><ChevronLeft size={16} /></button><CalendarDays size={15} /><strong>{monthLabel(selectedMonth)}</strong><button type="button" className="icon-btn" onClick={() => changeMonth(1)} aria-label="Próximo mês"><ChevronRight size={16} /></button></div>
+    </div>
+    <div className="metrics">
+      <div className="metric-card"><div className="metric-top"><span>Imóveis</span><span className="metric-icon"><Building2 size={15} /></span></div><div className="metric-value">{buildings.length}</div><div className="metric-foot">Carteira operacional</div></div>
+      <div className="metric-card"><div className="metric-top"><span>Ocupados</span><span className="metric-icon">✓</span></div><div className="metric-value">{buildings.reduce((sum, building) => sum + (building.unitsData ?? []).filter((unit) => unit.status === "alugado" || unit.status === "venda_alugado" || unit.lease).length, 0)}</div><div className="metric-foot">Unidades com inquilino</div></div>
+      <div className="metric-card"><div className="metric-top"><span>À venda</span><span className="metric-icon">$</span></div><div className="metric-value">{buildings.filter(isForSale).length}</div><div className="metric-foot">Imóveis ou unidades</div></div>
+      <div className="metric-card"><div className="metric-top"><span>Recebido no mês</span><span className="metric-icon">R$</span></div><div className="metric-value">{brl(monthTotal.received)} / {brl(monthTotal.expected)}</div><div className="metric-foot">{monthTotal.expected ? Math.round((monthTotal.received / monthTotal.expected) * 100) : 0}% do previsto</div></div>
+    </div>
+    <div className="panel"><div className="panel-heading"><div><h2>Carteira operacional</h2><p>{visible.length} imóveis encontrados · {monthLabel(selectedMonth)}</p></div><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><label className="search-inline"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar imóvel" /></label><select className="filter-select" value={regionFilter} onChange={(event) => setRegionFilter(event.target.value)}><option value="todas">Todas as regiões</option>{regions.map((region) => <option key={region} value={region}>{region}</option>)}</select><select className="filter-select" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="todos">Todos</option><option value="ocupados">Ocupados</option><option value="vagos">Vagos</option><option value="venda">À venda</option></select></div></div>
+      <div className="building-list">{orderedVisible.map((building) => {
+        const totals = buildingTotals(building);
+        const progress = totals.expected ? Math.min(100, Math.round((totals.received / totals.expected) * 100)) : 0;
+        return <Link href={buildingPath(building)} key={building.id} className={"building-row " + (isForSale(building) ? "sale-row" : "")}><div className="building-thumb" style={{ width: 62, height: 62 }}>{buildingPhotos[building.id] ? <img src={buildingPhotos[building.id]} alt={"Foto de " + building.name} /> : <Building2 size={18} />}</div><div className="building-info"><strong>{building.name}</strong><small>{regionLabel(building)} · {building.units} unidades</small><div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}><span className="tag">{building.occupied} ocupadas</span><span className="tag">{Math.max(0, building.units - building.occupied)} livres</span>{isForSale(building) && <span className="tag sale-tag">À venda</span>}</div></div><div className="building-value month-rent-summary"><strong>{brl(totals.received)} / {brl(totals.expected)}</strong><small>recebido / previsto · {progress}%</small><div className="progress"><span style={{ width: progress + "%" }} /></div></div></Link>;
+      })}</div>
+    </div>
+  </div>;
+}

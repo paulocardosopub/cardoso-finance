@@ -320,6 +320,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
   const setViewAs = useCallback((next: "actual" | "viewer" | "employee") => {
     setViewAsState(next);
+    setValue((current) => ({ ...current, viewAs: next }));
     window.localStorage.setItem("cardoso-view-as", next);
   }, []);
   const context = useMemo(() => ({ ...value, refresh, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation, setViewAs }), [acceptInvitation, declineInvitation, refresh, setPrimaryOrganization, setViewAs, switchOrganization, value]);
