@@ -34,6 +34,7 @@ const memberNav = [
 const employeeNav = [
   { href: "/", label: "Painel operacional", icon: LayoutDashboard },
   { href: "/imoveis", label: "Imóveis", icon: Building2 },
+  { href: "/mapa", label: "Mapa e visitas", icon: MapPinned },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -42,7 +43,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [holdingsOpen, setHoldingsOpen] = useState(false);
   const [holdingMessage, setHoldingMessage] = useState("");
-  const { organizationId, organizationName, userName, userInitials, userAvatarUrl, holdings, pendingInvitations, role, notifications, loading, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation, refresh } = usePortfolio();
+  const { organizationId, organizationName, userName, userInitials, userAvatarUrl, holdings, pendingInvitations, role, actualRole, viewAs, setViewAs, notifications, loading, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation, refresh } = usePortfolio();
   const route = pathname.replace(/\/+$/, "");
   const isPublic = route.endsWith("/login") || route.endsWith("/onboarding");
   useEffect(() => {
@@ -115,6 +116,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {role !== "viewer" && role !== "employee" && <><div className="nav-label" style={{ marginTop: 25 }}>Gestão</div><nav className="nav">{managementNav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={pathname.startsWith(href) ? "nav-link active" : "nav-link"}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav></>}
       <div className="sidebar-bottom"><div className="profile-mini"><div className="avatar">{userAvatarUrl ? <img src={userAvatarUrl} alt={`Foto de ${userName}`} /> : userInitials}</div><div><strong>{userName}</strong><small>{roleLabels[role]}</small></div><button className="icon-btn" onClick={signOut} aria-label="Sair"><LogOut size={14} /></button></div></div>
     </aside>
-    <main className="main"><header className="topbar"><button className="icon-btn mobile-menu" onClick={() => setOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button><div className="breadcrumb"><Home size={13} /><span>/</span><strong>{pathname === "/" ? role === "employee" ? "Painel operacional" : "Visão geral" : pathname.slice(1).replaceAll("-", " ")}</strong></div><div className="top-actions">{role !== "viewer" && role !== "employee" && <button className={notifications.length ? "icon-btn notification-dot" : "icon-btn"} aria-label="Notificações"><Bell size={17} /></button>}<div className="avatar" style={{ width: 27, height: 27, fontSize: 10 }}>{userAvatarUrl ? <img src={userAvatarUrl} alt={`Foto de ${userName}`} /> : userInitials}</div></div></header>{children}</main>
+    <main className="main"><header className="topbar"><button className="icon-btn mobile-menu" onClick={() => setOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button><div className="breadcrumb"><Home size={13} /><span>/</span><strong>{pathname === "/" ? role === "employee" ? "Painel operacional" : "Visão geral" : pathname.slice(1).replaceAll("-", " ")}</strong></div><div className="top-actions">{(actualRole === "owner" || actualRole === "admin" || actualRole === "manager") && <label className="view-as-control"><span>Visualizar como</span><select value={viewAs} onChange={(event) => setViewAs(event.target.value as "actual" | "viewer" | "employee")} aria-label="Visualizar como"><option value="actual">Minha visão</option><option value="viewer">Membro</option><option value="employee">Funcionária</option></select></label>}{role !== "viewer" && role !== "employee" && <button className={notifications.length ? "icon-btn notification-dot" : "icon-btn"} aria-label="Notificações"><Bell size={17} /></button>}<div className="avatar" style={{ width: 27, height: 27, fontSize: 10 }}>{userAvatarUrl ? <img src={userAvatarUrl} alt={`Foto de ${userName}`} /> : userInitials}</div></div></header>{children}</main>
   </div>;
 }

@@ -28,7 +28,7 @@ export function memberRouteAllowed(pathname: string) {
 
 export function employeeRouteAllowed(pathname: string) {
   const route = pathname.replace(/\/+$/, "") || "/";
-  return route === "/" || route === "/imoveis" || route.startsWith("/imoveis/");
+  return route === "/" || route === "/imoveis" || route.startsWith("/imoveis/") || route === "/mapa";
 }
 
 export type AuthorizedDocument = {

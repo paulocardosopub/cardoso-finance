@@ -18,6 +18,8 @@ type PortfolioContextValue = {
   holdings: Array<{ id: string; name: string; role: MemberRole; isPrimary: boolean }>;
   pendingInvitations: PendingInvitation[];
   role: MemberRole;
+  actualRole: MemberRole;
+  viewAs: "actual" | "viewer" | "employee";
   memberVisibility: MemberVisibility;
   memberSummary: MemberSummary;
   ownershipSummary: OwnershipSummary[];
@@ -37,6 +39,7 @@ type PortfolioContextValue = {
   setPrimaryOrganization: (organizationId: string) => Promise<{ ok: boolean; message?: string }>;
   acceptInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>;
   declineInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>;
+  setViewAs: (viewAs: "actual" | "viewer" | "employee") => void;
 };
 
 type PendingInvitation = { id: string; organizationId: string; organizationName: string; role: MemberRole; expiresAt: string };
@@ -135,7 +138,8 @@ function mapEmployeeBuildings(rows: Array<Record<string, unknown>>): Building[] 
 export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("cardoso-active-organization"));
-  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "setPrimaryOrganization" | "acceptInvitation" | "declineInvitation">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", userEmail: "", userPhone: "", userAvatarUrl: "", holdings: [], pendingInvitations: [], role: "viewer", memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" });
+  const [viewAs, setViewAsState] = useState<"actual" | "viewer" | "employee">(() => typeof window === "undefined" ? "actual" : (window.localStorage.getItem("cardoso-view-as") as "actual" | "viewer" | "employee" | null) ?? "actual");
+  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "setPrimaryOrganization" | "acceptInvitation" | "declineInvitation" | "setViewAs">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", userEmail: "", userPhone: "", userAvatarUrl: "", holdings: [], pendingInvitations: [], role: "viewer", actualRole: "viewer", viewAs: "actual", memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" });
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -170,18 +174,21 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const holdings = memberRows.map((row) => ({ id: String(row.organization_id), name: organizationNames.get(String(row.organization_id)) ?? "Holding", role: roleMap[String(row.role)] ?? "viewer", isPrimary: Boolean(row.is_primary) }));
     const selectedMembership = holdings.find((holding) => holding.id === activeOrganizationId) ?? holdings.find((holding) => holding.isPrimary) ?? holdings[0];
     const organizationId = selectedMembership.id;
+    const actualRole = selectedMembership.role;
+    const previewAllowed = actualRole === "owner" || actualRole === "admin" || actualRole === "manager";
+    const effectiveRole: MemberRole = previewAllowed && viewAs === "viewer" ? "viewer" : previewAllowed && viewAs === "employee" ? "employee" : actualRole;
     const invitationsResult = selectedMembership.role === "viewer" ? null : await supabase.rpc("list_my_invitations");
     const pendingInvitations = invitationsResult && !invitationsResult.error ? mapPendingInvitations(invitationsResult.data) : [];
     if (organizationId !== activeOrganizationId) { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }
     const organization = await supabase.from("organizations").select("name").eq("id", organizationId).single();
-    if (selectedMembership.role === "employee") {
+    if (effectiveRole === "employee") {
       const employeeResult = await supabase.rpc("get_employee_portfolio", { target_org: organizationId });
       if (employeeResult.error) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, role: "employee", loading: false, error: employeeResult.error.message })); return; }
       const employeeData = (employeeResult.data ?? {}) as Record<string, unknown>;
-      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "employee", memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: mapEmployeeBuildings((employeeData.buildings ?? []) as Array<Record<string, unknown>>), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
+      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "employee", actualRole, viewAs, memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: mapEmployeeBuildings((employeeData.buildings ?? []) as Array<Record<string, unknown>>), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
       return;
     }
-    if (selectedMembership.role === "viewer") {
+    if (effectiveRole === "viewer") {
       const memberResult = await supabase.rpc("get_member_portfolio", { target_org: organizationId });
       if (memberResult.error) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, role: "viewer", loading: false, error: memberResult.error.message })); return; }
       const memberData = (memberResult.data ?? {}) as Record<string, unknown>;
@@ -192,10 +199,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       const memberSummary = { totalValue: Number(summary.totalValue ?? 0), totalBuildings: Number(summary.totalBuildings ?? 0), totalUnits: Number(summary.totalUnits ?? 0), totalRent, ownershipPercentage: Number(summary.ownershipPercentage ?? 0) };
       const rentFactor = grossRent !== 0 ? totalRent / grossRent : 0;
       const ownershipSummary = ((memberData.ownership ?? []) as Array<Record<string, unknown>>).map((item) => ({ name: String(item.name ?? "Membro"), percentage: Number(item.percentage ?? 0) }));
-      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "viewer", memberVisibility, memberSummary, ownershipSummary, buildings: mapMemberBuildings((memberData.buildings ?? []) as Array<Record<string, unknown>>, rentFactor), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
+      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "viewer", actualRole, viewAs, memberVisibility, memberSummary, ownershipSummary, buildings: mapMemberBuildings((memberData.buildings ?? []) as Array<Record<string, unknown>>, rentFactor), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
       return;
     }
-    const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, distributionsResult, distributionItemsResult, bankAccountResult, visibilityResult] = await Promise.all([
+    const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, revenueCreditsResult, distributionsResult, distributionItemsResult, bankAccountResult, visibilityResult] = await Promise.all([
       supabase.from("assets").select("id, name, current_value, status, source_key").eq("organization_id", organizationId),
       supabase.from("buildings").select("id, asset_id, address, city, state, postal_code, latitude, longitude, description, total_units, acquisition_date, acquisition_value, current_value, last_valuation_date, status, source_key, notes").eq("organization_id", organizationId),
       supabase.from("property_units").select("id, building_id, code, unit_type, potential_rent, status, quantity, notes, updated_at").eq("organization_id", organizationId).order("code"),
@@ -205,12 +212,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       supabase.from("expense_responsibilities").select("expense_id, user_id, contact_id, share_percentage").eq("organization_id", organizationId),
       supabase.from("notifications").select("id, type, title, message, due_date, status, entity_id").eq("organization_id", organizationId).eq("status", "pending").order("due_date", { ascending: true }).limit(20),
       supabase.from("lease_payments").select("id, lease_id, competence, due_date, expected_amount, received_amount, received_at, discount, fine, interest, management_fee, other_discounts, net_amount, status, notes").eq("organization_id", organizationId).order("competence", { ascending: false }),
+      supabase.from("revenues").select("id, value, origin, source_sale_id").eq("organization_id", organizationId),
       supabase.from("distributions").select("id, distribution_date, description, total_value, status").eq("organization_id", organizationId).order("distribution_date", { ascending: false }),
       supabase.from("distribution_items").select("id, distribution_id, user_id, contact_id, percentage, value, payment_status, paid_at").eq("organization_id", organizationId),
       supabase.from("bank_accounts").select("id, name, initial_balance").eq("organization_id", organizationId).maybeSingle(),
       supabase.from("member_visibility_settings").select("show_total_assets, show_property_values, show_rental_info, show_property_status, show_photos, show_locations, show_map, show_documents, show_ownership_by_beneficiary").eq("organization_id", organizationId).maybeSingle(),
     ]);
-    const firstError = [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, distributionsResult, distributionItemsResult, bankAccountResult, visibilityResult].find((result) => result.error)?.error;
+    const firstError = [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, revenueCreditsResult, distributionsResult, distributionItemsResult, bankAccountResult, visibilityResult].find((result) => result.error)?.error;
     if (firstError) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, loading: false, error: firstError.message })); return; }
     const assets = (assetsResult.data ?? []) as Array<Record<string, unknown>>;
     const buildings = (buildingsResult.data ?? []) as Array<Record<string, unknown>>;
@@ -223,6 +231,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const distributions: DistributionRecord[] = rawDistributions.map((distribution) => ({ id: String(distribution.id), distributionDate: String(distribution.distribution_date), description: String(distribution.description), totalValue: Number(distribution.total_value ?? 0), status: String(distribution.status), items: rawDistributionItems.filter((item) => String(item.distribution_id) === String(distribution.id)).map((item) => ({ id: String(item.id), userId: item.user_id ? String(item.user_id) : undefined, contactId: item.contact_id ? String(item.contact_id) : undefined, percentage: Number(item.percentage ?? 0), value: Number(item.value ?? 0), paymentStatus: String(item.payment_status), paidAt: item.paid_at ? String(item.paid_at) : undefined })) }));
     const bankAccount: BankAccount | null = bankAccountResult.data ? { id: String(bankAccountResult.data.id), name: String(bankAccountResult.data.name ?? "Conta principal"), initialBalance: Number(bankAccountResult.data.initial_balance ?? 0) } : null;
     const paidRent = leasePayments.filter((payment) => payment.status === "paid" || payment.receivedAmount > 0).reduce((total, payment) => total + (payment.netAmount || payment.receivedAmount), 0);
+    const saleCredits = ((revenueCreditsResult.data ?? []) as Array<Record<string, unknown>>).filter((credit) => credit.origin === "property_sale" || credit.source_sale_id).reduce((total, credit) => total + Number(credit.value ?? 0), 0);
     const paidDistributions = distributions.filter((distribution) => distribution.status === "paid").reduce((total, distribution) => total + distribution.items.filter((item) => item.paymentStatus === "paid").reduce((sum, item) => sum + item.value, 0), 0);
     const expenseAssignments = (expenseResponsibilitiesResult.data ?? []) as Array<{ expense_id: string; user_id?: string | null; contact_id?: string | null; share_percentage?: number | null }>;
     const expenses = ((expensesResult.data ?? []) as ExpenseRecord[]).map((expense) => {
@@ -264,10 +273,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const monthlyExpenses = expenses.filter((expense) => expense.expense_kind !== "one_time" || expense.expense_date?.startsWith(currentMonth)).reduce((total, expense) => total + Number(expense.value || 0), 0);
     const monthlyProfit = mappedBuildings.reduce((total, building) => total + building.revenue, 0) - monthlyExpenses;
     const paidExpenses = expenses.filter((expense) => new Date(`${expense.expense_date}T12:00:00`) <= new Date()).reduce((total, expense) => total + Number(expense.value || 0), 0);
-    const bankBalance = (bankAccount?.initialBalance ?? 0) + paidRent - paidExpenses - paidDistributions;
+    const bankBalance = (bankAccount?.initialBalance ?? 0) + paidRent + saleCredits - paidExpenses - paidDistributions;
     const memberSummary = { totalValue: mappedBuildings.filter((building) => building.status !== "vendido").reduce((sum, building) => sum + building.value, 0), totalBuildings: mappedBuildings.filter((building) => building.status !== "vendido").length, totalUnits: mappedBuildings.reduce((sum, building) => sum + building.units, 0), totalRent: mappedBuildings.reduce((sum, building) => sum + building.revenue, 0), ownershipPercentage: 0 };
-    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: selectedMembership.role, memberVisibility: visibilityFromRow(visibilityResult.data as Record<string, unknown> | null), memberSummary, ownershipSummary: [], buildings: mappedBuildings, expenses, leasePayments, distributions, bankAccount, bankBalance, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
-  }, [activeOrganizationId, session]);
+    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: effectiveRole, actualRole, viewAs, memberVisibility: visibilityFromRow(visibilityResult.data as Record<string, unknown> | null), memberSummary, ownershipSummary: [], buildings: mappedBuildings, expenses, leasePayments, distributions, bankAccount, bankBalance, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
+  }, [activeOrganizationId, session, viewAs]);
 
   useEffect(() => { if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session]);
   useEffect(() => {
@@ -309,7 +318,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     await refresh();
     return { ok: true };
   }, [refresh]);
-  const context = useMemo(() => ({ ...value, refresh, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation }), [acceptInvitation, declineInvitation, refresh, setPrimaryOrganization, switchOrganization, value]);
+  const setViewAs = useCallback((next: "actual" | "viewer" | "employee") => {
+    setViewAsState(next);
+    window.localStorage.setItem("cardoso-view-as", next);
+  }, []);
+  const context = useMemo(() => ({ ...value, refresh, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation, setViewAs }), [acceptInvitation, declineInvitation, refresh, setPrimaryOrganization, setViewAs, switchOrganization, value]);
   return <PortfolioContext.Provider value={context}>{children}</PortfolioContext.Provider>;
 }
 

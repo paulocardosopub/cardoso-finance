@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, LocateFixed, MapPinned, Save } from "lucide-react";
+import { Clock3, ExternalLink, LocateFixed, MapPinned, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PropertyMap, type PropertyMapPin } from "@/components/property-map";
 import { usePortfolio } from "@/components/portfolio-provider";
@@ -9,6 +9,7 @@ import { buildingIsForSale } from "@/lib/building-order";
 import type { Building } from "@/types/domain";
 
 type LocationForm = { address: string; city: string; state: string; postalCode: string; latitude: string; longitude: string };
+type VisitRow = { id: string; building_id: string; unit_id?: string | null; visited_at: string; latitude?: number | null; longitude?: number | null; notes?: string | null };
 const emptyLocation: LocationForm = { address: "", city: "", state: "", postalCode: "", latitude: "", longitude: "" };
 
 function formFromBuilding(building: { address?: string; city: string; state: string; postalCode?: string; latitude?: number; longitude?: number }): LocationForm {
@@ -17,6 +18,10 @@ function formFromBuilding(building: { address?: string; city: string; state: str
 
 function mapsUrl(latitude: number, longitude: number) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
+}
+
+function VisitHistory({ visits, buildings, canClear, onClear }: { visits: VisitRow[]; buildings: Building[]; canClear: boolean; onClear?: () => void }) {
+  return <section className="panel section-gap"><div className="panel-heading"><div><h2>Histórico de visitas</h2><p>{visits.length ? `${visits.length} visita(s) registrada(s)` : "Nenhuma visita registrada ainda."}</p></div>{canClear && visits.length > 0 && <button type="button" className="button button-ghost danger-button button-small" onClick={onClear}><Trash2 size={13} /> Limpar histórico</button>}</div>{visits.length ? <div className="visit-history-list">{visits.map((visit) => { const building = buildings.find((item) => item.dbId === visit.building_id); const unit = building?.unitsData?.find((item) => item.id === visit.unit_id); return <div className="visit-history-row" key={visit.id}><Clock3 size={15} /><div><strong>{building?.name ?? "Imóvel"}{unit ? ` · ${unit.code}` : ""}</strong><small>{new Date(visit.visited_at).toLocaleString("pt-BR")} · {visit.latitude != null && visit.longitude != null ? `${Number(visit.latitude).toFixed(5)}, ${Number(visit.longitude).toFixed(5)}` : "localização não disponível"}</small></div>{visit.latitude != null && visit.longitude != null && <a className="icon-btn" href={mapsUrl(Number(visit.latitude), Number(visit.longitude))} target="_blank" rel="noreferrer" aria-label="Abrir localização da visita"><ExternalLink size={13} /></a>}</div>; })}</div> : <div className="empty-state" style={{ minHeight: 100 }}><Clock3 size={24} /><p>As visitas marcadas pela funcionária aparecerão aqui.</p></div>}</section>;
 }
 
 function pinTone(building: Pick<Building, "status" | "unitsData" | "revenue" | "occupied">): PropertyMapPin["tone"] {
@@ -31,6 +36,7 @@ export default function MapaPage() {
   const [form, setForm] = useState<LocationForm>(emptyLocation);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [visits, setVisits] = useState<VisitRow[]>([]);
 
   const selectedBuilding = buildings.find((building) => building.id === selectedId || building.dbId === selectedId) ?? buildings[0];
   const savedPins = useMemo<PropertyMapPin[]>(() => buildings.filter((building) => Number.isFinite(building.latitude) && Number.isFinite(building.longitude) && !(building.latitude === 0 && building.longitude === 0)).map((building) => ({ id: building.id, name: building.name, latitude: Number(building.latitude), longitude: Number(building.longitude), status: building.status, tone: pinTone(building), city: `${building.city}${building.state ? `, ${building.state}` : ""}`, address: building.address, googleMapsUrl: mapsUrl(Number(building.latitude), Number(building.longitude)) })), [buildings]);
@@ -118,7 +124,7 @@ export default function MapaPage() {
 
   async function saveLocation(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!organizationId || !selectedBuilding?.dbId || role === "viewer") { setMessage("Seu perfil não pode editar a localização."); return; }
+    if (!organizationId || !selectedBuilding?.dbId || role === "viewer" || role === "employee") { setMessage("Seu perfil não pode editar a localização."); return; }
     const latitude = Number(form.latitude.replace(",", "."));
     const longitude = Number(form.longitude.replace(",", "."));
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) { setMessage("Informe uma latitude e longitude válidas ou use Localizar endereço."); return; }
@@ -137,11 +143,28 @@ export default function MapaPage() {
     setMessage("Pin reposicionado. Clique em Salvar pin para gravar a nova localização.");
   }, []);
 
+  async function loadVisits() {
+    if (!organizationId || role === "viewer") return;
+    const supabase = createSupabaseBrowserClient(); if (!supabase) return;
+    const result = await supabase.from("property_visits").select("id, building_id, unit_id, visited_at, latitude, longitude, notes").eq("organization_id", organizationId).order("visited_at", { ascending: false }).limit(200);
+    if (!result.error) setVisits((result.data ?? []) as VisitRow[]);
+  }
+  async function clearVisits() {
+    if (!organizationId || role === "viewer" || !window.confirm("Limpar todo o histórico de visitas desta holding?")) return;
+    const supabase = createSupabaseBrowserClient(); if (!supabase) return;
+    setBusy(true);
+    const result = await supabase.rpc("clear_property_visit_history", { target_org: organizationId });
+    setMessage(result.error ? "Não foi possível limpar o histórico." : "Histórico de visitas limpo.");
+    if (!result.error) setVisits([]);
+    setBusy(false);
+  }
+  useEffect(() => { void loadVisits(); }, [organizationId, role]);
+
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando mapa...</p></div></div>;
   if (!organizationId) return <div className="content"><div className="empty-state"><h3>Nenhuma organização selecionada</h3><p>Entre em uma holding para visualizar os imóveis no mapa.</p></div></div>;
   if (role === "viewer" && !memberVisibility.showMap) return <div className="content"><div className="page-heading"><div><div className="eyebrow"><MapPinned size={13} /> Localização da carteira</div><h1>Mapas</h1><p className="subtitle">A visualização do mapa não foi compartilhada para membros desta holding.</p></div></div><div className="empty-state"><MapPinned size={28} /><h3>Mapa não disponível</h3><p>Se precisar desta informação, fale com um administrador.</p></div></div>;
 
-  if (role === "viewer") return <div className="content"><div className="page-heading"><div><div className="eyebrow"><MapPinned size={13} /> Localização da carteira</div><h1>Mapas</h1><p className="subtitle">Navegue pelos imóveis e consulte as localizações compartilhadas.</p></div></div><section className="panel map-panel"><div className="panel-heading"><div><h2>Imóveis no mapa</h2><p>{savedPins.length} de {buildings.length} prédios com localização compartilhada</p></div><MapPinned size={17} color="#80e2b0" /></div><PropertyMap pins={savedPins} />{savedPins.length === 0 && <div className="map-empty"><LocateFixed size={20} /><span>Nenhuma localização está disponível para consulta.</span></div>}</section><p className="map-attribution-note">O mapa usa OpenStreetMap. Clique em um marcador para ver as informações resumidas e abrir a rota no Google Maps.</p></div>;
+  if (role === "viewer" || role === "employee") return <div className="content"><div className="page-heading"><div><div className="eyebrow"><MapPinned size={13} /> Localização da carteira</div><h1>Mapas</h1><p className="subtitle">Navegue pelos imóveis, localizações compartilhadas e visitas registradas.</p></div></div><section className="panel map-panel"><div className="panel-heading"><div><h2>Imóveis no mapa</h2><p>{savedPins.length} de {buildings.length} prédios com localização compartilhada</p></div><MapPinned size={17} color="#80e2b0" /></div><PropertyMap pins={savedPins} />{savedPins.length === 0 && <div className="map-empty"><LocateFixed size={20} /><span>Nenhuma localização está disponível para consulta.</span></div>}</section><VisitHistory visits={visits} buildings={buildings} canClear={false} /><p className="map-attribution-note">O mapa usa OpenStreetMap. Clique em um marcador para ver as informações resumidas e abrir a rota no Google Maps.</p></div>;
 
   const selectedLatitude = Number(form.latitude.replace(",", "."));
   const selectedLongitude = Number(form.longitude.replace(",", "."));
@@ -150,6 +173,7 @@ export default function MapaPage() {
     {message && <p className={message.startsWith("Não") || message.startsWith("Informe") || message.startsWith("Seu") ? "form-error" : "form-success"}>{message}</p>}
     <div className="map-layout"><section className="panel map-panel"><div className="panel-heading"><div><h2>Imóveis no mapa</h2><p>{pins.length} de {buildings.length} prédios com localização · arraste qualquer pin para ajustar</p></div><MapPinned size={17} color="#80e2b0" /></div><PropertyMap pins={pins} onSelect={setSelectedId} onMove={movePin} />{pins.length === 0 && <div className="map-empty"><LocateFixed size={20} /><span>Nenhum imóvel tem coordenadas ainda. Selecione um prédio ao lado e use “Localizar endereço”.</span></div>}</section>
       <form className="panel map-location-form" onSubmit={saveLocation}><div className="panel-heading"><div><h2>Localizar prédio</h2><p>Selecione um imóvel, encontre o endereço e salve o pin.</p></div><LocateFixed size={17} color="#80e2b0" /></div><label>Prédio<select value={selectedBuilding?.id ?? ""} onChange={(event) => setSelectedId(event.target.value)}>{buildings.map((building) => <option value={building.id} key={building.id}>{building.name} · {building.status}</option>)}</select></label><label>Endereço<input value={form.address} onChange={(event) => update("address", event.target.value)} placeholder="Rua, número, complemento" /></label><div className="form-grid"><label>Cidade<input value={form.city} onChange={(event) => update("city", event.target.value)} /></label><label>Estado<input value={form.state} onChange={(event) => update("state", event.target.value)} maxLength={2} /></label></div><label>CEP<input value={form.postalCode} onChange={(event) => update("postalCode", event.target.value)} placeholder="00000-000" /></label><button type="button" className="button button-ghost full-width" onClick={() => void locateAddress()} disabled={busy}><LocateFixed size={14} /> {busy ? "Localizando…" : "Localizar endereço"}</button><div className="form-grid"><label>Latitude<input value={form.latitude} onChange={(event) => update("latitude", event.target.value)} placeholder="-15.7939" /></label><label>Longitude<input value={form.longitude} onChange={(event) => update("longitude", event.target.value)} placeholder="-47.8828" /></label></div><div className="onboarding-actions"><span className="muted">A localização é salva somente nesta holding.</span><button type="submit" className="button button-primary" disabled={busy}><Save size={14} /> Salvar pin</button></div>{selectedPin && <a className="map-google-link" href={selectedPin} target="_blank" rel="noreferrer"><ExternalLink size={13} /> Abrir no Google Maps</a>}</form></div>
+    <VisitHistory visits={visits} buildings={buildings} canClear={role === "owner" || role === "admin" || role === "manager"} onClear={() => void clearVisits()} />
     <p className="map-attribution-note">O mapa usa OpenStreetMap, sem necessidade de chave ou cobrança. Cada pin também possui acesso direto ao Google Maps para rotas e detalhes.</p>
   </div>;
 }
