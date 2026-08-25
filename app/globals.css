@@ -200,6 +200,11 @@ td small { display:flex; align-items:center; gap:4px; color:var(--muted); font-s
 .payment-line, .health-line { display:flex; align-items:center; justify-content:space-between; padding:13px 0; border-bottom:1px solid rgba(176,196,219,.08); font-size:12px; }
 .payment-line:last-child, .health-line:last-child { border-bottom:0; }
 .payment-line small { display:block; color:var(--muted); font-size:10px; margin-top:4px; }
+.payment-cell { display:flex; align-items:center; gap:9px; }
+.payment-value { min-width:92px; font-size:12px; text-align:right; }
+.payment-value-pending { color:#ff8585 !important; }
+.payment-value-paid { color:var(--accent) !important; }
+.payment-button { white-space:nowrap; }
 .health-line span { color:var(--muted); }
 .health-line strong { font-size:12px; font-weight:500; }
 .setting-row { display:flex; justify-content:space-between; gap:20px; padding:15px 0; border-bottom:1px solid rgba(176,196,219,.08); color:var(--muted); font-size:12px; }
