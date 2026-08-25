@@ -64,7 +64,7 @@ export function PropertyMap({ pins, onSelect, onMove }: { pins: PropertyMapPin[]
         existing.setPopupContent(popup);
         return;
       }
-      const marker = L.marker([pin.latitude, pin.longitude], { icon, draggable: true }).addTo(layer);
+      const marker = L.marker([pin.latitude, pin.longitude], { icon, draggable: Boolean(onMove) }).addTo(layer);
       marker.bindPopup(popup);
       marker.on("click", () => onSelect?.(pin.id));
       marker.on("dragend", () => { const position = marker.getLatLng(); onMove?.(pin.id, position.lat, position.lng); });

@@ -6,11 +6,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { Building } from "@/types/domain";
 import { buildingPath } from "@/lib/building-path";
+import { usePortfolio } from "@/components/portfolio-provider";
+import { listAuthorizedDocuments } from "@/lib/member-access";
 
 type AlbumItem = { unitId: string; building: Building; buildingName: string; code: string; city: string; url: string; isPrimary: boolean };
 type StoredPhoto = { url: string; isPrimary: boolean };
 
 export function PropertyAlbum({ buildings, organizationId }: { buildings: Building[]; organizationId: string }) {
+  const { role, memberVisibility } = usePortfolio();
   const [items, setItems] = useState<AlbumItem[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -18,14 +21,14 @@ export function PropertyAlbum({ buildings, organizationId }: { buildings: Buildi
     const unitMap = new Map((buildings.flatMap((building) => (building.unitsData ?? []).map((unit) => [unit.id, { building, buildingName: building.name, code: unit.code, city: `${building.city}, ${building.state}` }]))));
     const unitIds = [...unitMap.keys()];
     const supabase = createSupabaseBrowserClient();
-    if (!supabase || !unitIds.length) {
+    if (!supabase || !unitIds.length || (role === "viewer" && !memberVisibility.showPhotos)) {
       setItems([]);
       return;
     }
-    const result = await supabase.from("documents").select("unit_id, storage_path, is_primary, created_at").eq("organization_id", organizationId).eq("category", "photo").in("unit_id", unitIds).order("created_at", { ascending: false });
+    const result = await listAuthorizedDocuments(supabase, organizationId, role);
     if (result.error) return;
     const grouped = new Map<string, StoredPhoto[]>();
-    for (const row of result.data ?? []) {
+    for (const row of (result.data ?? []).filter((document) => document.category === "photo" && document.unit_id && unitIds.includes(String(document.unit_id)))) {
       const url = (await supabase.storage.from("organization-documents").createSignedUrl(String(row.storage_path), 3600)).data?.signedUrl;
       if (!url) continue;
       const key = String(row.unit_id);
@@ -40,7 +43,7 @@ export function PropertyAlbum({ buildings, organizationId }: { buildings: Buildi
     });
     setItems(nextItems);
     setActiveIndex((index) => nextItems.length ? index % nextItems.length : 0);
-  }, [buildings, organizationId]);
+  }, [buildings, memberVisibility.showPhotos, organizationId, role]);
 
   useEffect(() => {
     void loadAlbum();

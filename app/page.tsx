@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, BellRing, CircleDollarSign, Landmark, MoreHorizontal, Plus, Receipt, Tag, TrendingUp, WalletCards } from "lucide-react";
+import { ArrowUpRight, BellRing, Building2, CircleDollarSign, Landmark, MapPinned, MoreHorizontal, Plus, Receipt, Tag, TrendingUp, WalletCards } from "lucide-react";
 import { WealthChart } from "@/components/wealth-chart";
 import { PropertyAlbum } from "@/components/property-album";
 import { usePortfolio } from "@/components/portfolio-provider";
@@ -10,6 +10,7 @@ import type { Building } from "@/types/domain";
 import { buildingPath } from "@/lib/building-path";
 import { buildingIsForSale, sortBuildingsForDisplay } from "@/lib/building-order";
 import { useEffect, useState } from "react";
+import { PropertyMap, type PropertyMapPin } from "@/components/property-map";
 
 function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda" || unit.status === "venda_alugado"); }
 function isForSale(building: Building) { return buildingIsForSale(building); }
@@ -27,7 +28,7 @@ const welcomeMessages = [
 ];
 
 export default function DashboardPage() {
-  const { buildings, notifications, leasePayments, loading, organizationId, userName, bankBalance, monthlyExpenses, monthlyProfit } = usePortfolio();
+  const { buildings, notifications, leasePayments, loading, organizationId, userName, bankBalance, monthlyExpenses, monthlyProfit, role, memberVisibility, memberSummary, ownershipSummary } = usePortfolio();
   const [welcomeIndex, setWelcomeIndex] = useState(0);
   useEffect(() => { setWelcomeIndex(Math.floor(Math.random() * welcomeMessages.length)); }, []);
   const activeBuildings = sortBuildingsForDisplay(buildings.filter((building) => building.status !== "vendido"));
@@ -47,6 +48,7 @@ export default function DashboardPage() {
   const saleBuildings = activeBuildings.filter(isForSale);
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando sua carteira...</p></div></div>;
   if (!organizationId) return <div className="content"><div className="empty-state"><Landmark size={30} /><h3>Crie sua primeira organização</h3><p>Depois da criação, os 62 registros válidos da planilha serão importados no Supabase.</p><Link href="/onboarding" className="button button-primary"><Plus size={15} /> Começar</Link></div></div>;
+  if (role === "viewer") return <MemberDashboard buildings={activeBuildings} organizationId={organizationId} userName={userName} visibility={memberVisibility} summary={memberSummary} ownership={ownershipSummary} />;
   return <div className="content">
     <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Carteira sincronizada</div><h1>{welcomeMessages[welcomeIndex].replace("{name}", userName)}</h1><p className="subtitle">Dados reais da sua organização, com patrimônio baseado exclusivamente em AVALIAÇÃO.</p></div><Link href="/imoveis" className="button button-primary"><Plus size={15} /><span>Gerenciar imóveis</span></Link></div>
     <section className="metrics"><Metric icon={<CircleDollarSign size={15} />} label="Patrimônio imobiliário" value={compactBrl(totalValue)} foot={`${buildings.length} prédios organizados`} positive /><Metric icon={<ArrowUpRight size={15} />} label="Aluguéis mensais" value={brl(totalRevenue)} foot="Somente aluguéis informados" positive /><Metric icon={<Receipt size={15} />} label="Despesas mensais" value={brl(monthlyExpenses)} foot={`Saldo após despesas: ${brl(monthlyProfit)}`} /><Metric icon={<Landmark size={15} />} label="Ocupação" value={`${occupancy}%`} foot={`${occupied} de ${units} unidades`} positive /><Metric icon={<WalletCards size={15} />} label="Saldo bancário" value={brl(bankBalance)} foot="Após aluguéis, despesas e transferências" positive={bankBalance >= 0} /></section>
@@ -61,3 +63,28 @@ export default function DashboardPage() {
 }
 
 function Metric({ icon, label, value, foot, positive }: { icon: React.ReactNode; label: string; value: string; foot: string; positive?: boolean }) { return <div className="metric-card"><div className="metric-top"><span>{label}</span><span className="metric-icon">{icon}</span></div><div className="metric-value">{value}</div><div className={`metric-foot ${positive ? "positive" : ""}`}>{foot}</div></div>; }
+
+function MemberDashboard({ buildings, organizationId, userName, visibility, summary, ownership }: { buildings: Building[]; organizationId: string; userName: string; visibility: ReturnType<typeof usePortfolio>["memberVisibility"]; summary: ReturnType<typeof usePortfolio>["memberSummary"]; ownership: ReturnType<typeof usePortfolio>["ownershipSummary"] }) {
+  const totalOccupied = buildings.reduce((sum, building) => sum + building.occupied, 0);
+  const totalUnits = buildings.reduce((sum, building) => sum + building.units, 0);
+  const statusCounts = buildings.reduce<Record<string, number>>((counts, building) => ({ ...counts, [building.status]: (counts[building.status] ?? 0) + 1 }), {});
+  const states = buildings.reduce<Record<string, number>>((counts, building) => building.state ? ({ ...counts, [building.state]: (counts[building.state] ?? 0) + 1 }) : counts, {});
+  const pins: PropertyMapPin[] = buildings.filter((building) => Number.isFinite(building.latitude) && Number.isFinite(building.longitude)).map((building) => ({ id: building.id, name: building.name, latitude: Number(building.latitude), longitude: Number(building.longitude), status: building.status, tone: building.status === "venda" ? "sale" : building.occupied > 0 ? "rented" : "available", city: [building.city, building.state].filter(Boolean).join(", "), address: building.address, googleMapsUrl: `https://www.google.com/maps/search/?api=1&query=${building.latitude},${building.longitude}` }));
+  return <div className="content member-dashboard">
+    <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Visão consolidada</div><h1>Olá, {userName}!</h1><p className="subtitle">Acompanhe aqui as informações patrimoniais compartilhadas com os membros.</p></div><span className="tag">Acesso de consulta</span></div>
+    <section className="metrics">
+      {visibility.showTotalAssets && <Metric icon={<CircleDollarSign size={15} />} label="Patrimônio total" value={compactBrl(summary.totalValue)} foot="Valor consolidado autorizado" positive />}
+      <Metric icon={<Building2 size={15} />} label="Imóveis" value={String(summary.totalBuildings)} foot={`${summary.totalUnits || totalUnits} unidades cadastradas`} positive />
+      {visibility.showPropertyStatus && <Metric icon={<Landmark size={15} />} label="Ocupação" value={`${totalUnits ? Math.round(totalOccupied / totalUnits * 100) : 0}%`} foot={`${totalOccupied} de ${totalUnits} unidades`} positive />}
+      {visibility.showRentalInfo && <Metric icon={<ArrowUpRight size={15} />} label="Aluguéis mensais" value={brl(summary.totalRent)} foot="Valor consolidado autorizado" positive />}
+    </section>
+    <section className="dashboard-grid">
+      {visibility.showPropertyValues && <div className="panel"><div className="panel-heading"><div><h2>Patrimônio por imóvel</h2><p>Distribuição dos valores compartilhados</p></div></div><WealthChart buildings={buildings} /></div>}
+      {visibility.showPropertyStatus && <div className="panel"><div className="panel-heading"><div><h2>Imóveis por status</h2><p>Resumo da situação atual da carteira</p></div></div><div className="member-summary-list">{Object.entries(statusCounts).map(([status, count]) => <div className="setting-row" key={status}><span>{status === "ativo" ? "Ativos" : status === "reforma" ? "Em reforma" : status === "venda" ? "À venda" : status === "vendido" ? "Vendidos" : "Inativos"}</span><strong>{count}</strong></div>)}</div></div>}
+      {visibility.showLocations && Object.keys(states).length > 0 && <div className="panel"><div className="panel-heading"><div><h2>Distribuição por estado</h2><p>Localização geral dos imóveis</p></div></div>{Object.entries(states).sort((a, b) => b[1] - a[1]).map(([state, count]) => <div className="setting-row" key={state}><span>{state}</span><strong>{count} {count === 1 ? "imóvel" : "imóveis"}</strong></div>)}</div>}
+      {visibility.showOwnershipByBeneficiary && ownership.length > 0 && <div className="panel"><div className="panel-heading"><div><h2>Participações</h2><p>Distribuição autorizada pelos administradores</p></div></div>{ownership.map((item) => <div className="setting-row" key={item.name}><span>{item.name}</span><strong>{item.percentage.toFixed(2).replace(".", ",")}%</strong></div>)}</div>}
+      {visibility.showMap && pins.length > 0 && <div className="panel member-map-panel"><div className="panel-heading"><div><h2>Mapa dos imóveis</h2><p>{pins.length} localização{pins.length > 1 ? "ões" : ""} compartilhada{pins.length > 1 ? "s" : ""}</p></div><MapPinned size={17} color="#80e2b0" /></div><PropertyMap pins={pins} /></div>}
+      {visibility.showPhotos && <PropertyAlbum buildings={buildings} organizationId={organizationId} />}
+    </section>
+  </div>;
+}

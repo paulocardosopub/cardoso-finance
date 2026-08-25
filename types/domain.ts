@@ -1,5 +1,25 @@
 export type OrganizationType = "personal" | "family" | "company";
 export type MemberRole = "owner" | "admin" | "manager" | "viewer";
+export type MemberVisibility = {
+  showTotalAssets: boolean;
+  showPropertyValues: boolean;
+  showRentalInfo: boolean;
+  showPropertyStatus: boolean;
+  showPhotos: boolean;
+  showLocations: boolean;
+  showMap: boolean;
+  showDocuments: boolean;
+  showOwnershipByBeneficiary: boolean;
+};
+
+export type MemberSummary = {
+  totalValue: number;
+  totalBuildings: number;
+  totalUnits: number;
+  totalRent: number;
+};
+
+export type OwnershipSummary = { name: string; percentage: number };
 export type UnitStatus = "alugado" | "vago" | "manutencao" | "servico" | "negociacao" | "venda" | "venda_alugado" | "vendido";
 export type ExpenseKind = "fixed" | "recurring" | "one_time";
 export type LeasePaymentStatus = "pending" | "paid" | "overdue" | "partial" | "waived";

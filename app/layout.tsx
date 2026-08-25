@@ -17,5 +17,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <AuthGuard><PortfolioProvider><AppShell>{children}</AppShell></PortfolioProvider></AuthGuard>;
+  return <html lang="pt-BR"><body><AuthGuard><PortfolioProvider><AppShell>{children}</AppShell></PortfolioProvider></AuthGuard></body></html>;
 }

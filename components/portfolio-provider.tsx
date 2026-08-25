@@ -3,8 +3,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
-import type { BankAccount, Building, DistributionRecord, ExpenseRecord, LeasePaymentRecord, LeaseSummary, MemberRole, NotificationItem, PropertyUnit } from "@/types/domain";
+import type { BankAccount, Building, DistributionRecord, ExpenseRecord, LeasePaymentRecord, LeaseSummary, MemberRole, MemberSummary, MemberVisibility, NotificationItem, OwnershipSummary, PropertyUnit } from "@/types/domain";
 import { sortBuildings } from "@/lib/building-order";
+import { defaultMemberVisibility } from "@/lib/member-access";
 
 type PortfolioContextValue = {
   organizationId: string | null;
@@ -17,6 +18,9 @@ type PortfolioContextValue = {
   holdings: Array<{ id: string; name: string; role: MemberRole; isPrimary: boolean }>;
   pendingInvitations: PendingInvitation[];
   role: MemberRole;
+  memberVisibility: MemberVisibility;
+  memberSummary: MemberSummary;
+  ownershipSummary: OwnershipSummary[];
   buildings: Building[];
   expenses: ExpenseRecord[];
   leasePayments: LeasePaymentRecord[];
@@ -60,10 +64,48 @@ function mapPendingInvitations(data: unknown): PendingInvitation[] {
   return ((data ?? []) as Array<Record<string, unknown>>).map((invitation) => ({ id: String(invitation.id), organizationId: String(invitation.organization_id), organizationName: String(invitation.organization_name ?? "Holding"), role: roleMap[String(invitation.role)] ?? "viewer", expiresAt: String(invitation.expires_at) }));
 }
 
+function visibilityFromRow(row: Record<string, unknown> | null | undefined): MemberVisibility {
+  if (!row) return defaultMemberVisibility;
+  return {
+    showTotalAssets: Boolean(row.show_total_assets ?? row.showTotalAssets),
+    showPropertyValues: Boolean(row.show_property_values ?? row.showPropertyValues),
+    showRentalInfo: Boolean(row.show_rental_info ?? row.showRentalInfo),
+    showPropertyStatus: Boolean(row.show_property_status ?? row.showPropertyStatus),
+    showPhotos: Boolean(row.show_photos ?? row.showPhotos),
+    showLocations: Boolean(row.show_locations ?? row.showLocations),
+    showMap: Boolean(row.show_map ?? row.showMap),
+    showDocuments: Boolean(row.show_documents ?? row.showDocuments),
+    showOwnershipByBeneficiary: Boolean(row.show_ownership_by_beneficiary ?? row.showOwnershipByBeneficiary),
+  };
+}
+
+function mapMemberBuildings(rows: Array<Record<string, unknown>>): Building[] {
+  const buildingStatusMap: Record<string, Building["status"]> = { active: "ativo", renovation: "reforma", for_sale: "venda", sold: "vendido", inactive: "inativo" };
+  return sortBuildings(rows.map((row) => {
+    const units = ((row.units ?? []) as Array<Record<string, unknown>>).map((unit): PropertyUnit => {
+      const baseStatus = unit.status ? statusMap[String(unit.status)] ?? "vago" : "vago";
+      const rent = Number(unit.rent ?? 0);
+      return { id: String(unit.id), code: String(unit.code), type: String(unit.type ?? "Unidade"), area: 0, status: baseStatus === "venda" && rent > 0 ? "venda_alugado" : baseStatus, rent, quantity: Number(unit.quantity ?? 1) };
+    });
+    const unitsTotal = units.reduce((sum, unit) => sum + (unit.quantity ?? 1), 0) || Number(row.total_units ?? 0);
+    const occupied = units.reduce((sum, unit) => sum + (unit.status === "alugado" || unit.status === "venda_alugado" ? unit.quantity ?? 1 : 0), 0);
+    const latitude = row.latitude == null ? undefined : Number(row.latitude);
+    const longitude = row.longitude == null ? undefined : Number(row.longitude);
+    return {
+      id: String(row.id), dbId: String(row.db_id), assetId: String(row.asset_id), sourceKey: row.source_key ? String(row.source_key) : undefined,
+      name: String(row.name ?? "Prédio"), address: String(row.address ?? ""), city: String(row.city ?? ""), state: String(row.state ?? ""),
+      postalCode: row.postal_code ? String(row.postal_code) : undefined, latitude: Number.isFinite(latitude) ? latitude : undefined, longitude: Number.isFinite(longitude) ? longitude : undefined,
+      description: String(row.description ?? ""), value: Number(row.value ?? 0), units: unitsTotal, occupied,
+      revenue: units.reduce((sum, unit) => sum + unit.rent, 0), expenses: 0,
+      status: row.status ? buildingStatusMap[String(row.status)] ?? "ativo" : "ativo", image: `db-${row.db_id}`, unitsData: units, sourceRows: units.length,
+    };
+  }));
+}
+
 export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("cardoso-active-organization"));
-  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "setPrimaryOrganization" | "acceptInvitation" | "declineInvitation">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", userEmail: "", userPhone: "", userAvatarUrl: "", holdings: [], pendingInvitations: [], role: "viewer", buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" });
+  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "setPrimaryOrganization" | "acceptInvitation" | "declineInvitation">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", userEmail: "", userPhone: "", userAvatarUrl: "", holdings: [], pendingInvitations: [], role: "viewer", memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" });
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -77,8 +119,6 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !session) { setValue((current) => ({ ...current, loading: false })); return; }
     setValue((current) => ({ ...current, loading: true, error: "" }));
-    const invitationsResult = await supabase.rpc("list_my_invitations");
-    const pendingInvitations = invitationsResult.error ? [] : mapPendingInvitations(invitationsResult.data);
     const membershipsResult = await supabase.from("organization_members").select("organization_id, role, joined_at, is_primary").eq("user_id", session.user.id).order("joined_at", { ascending: true });
     if (membershipsResult.error) { setValue((current) => ({ ...current, loading: false, error: membershipsResult.error.message })); return; }
     const profile = await supabase.from("profiles").select("full_name, phone, avatar_url").eq("id", session.user.id).maybeSingle();
@@ -88,16 +128,34 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const profileEmail = session.user.email ?? "";
     const memberRows = (membershipsResult.data ?? []) as Array<Record<string, unknown>>;
     const memberOrganizationIds = memberRows.map((row) => String(row.organization_id));
-    if (!memberOrganizationIds.length) { setValue((current) => ({ ...current, organizationId: null, userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings: [], pendingInvitations, buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false })); return; }
+    if (!memberOrganizationIds.length) {
+      const invitationsResult = await supabase.rpc("list_my_invitations");
+      const pendingInvitations = invitationsResult.error ? [] : mapPendingInvitations(invitationsResult.data);
+      setValue((current) => ({ ...current, organizationId: null, userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings: [], pendingInvitations, memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false }));
+      return;
+    }
     const organizationsResult = await supabase.from("organizations").select("id, name").in("id", memberOrganizationIds);
     if (organizationsResult.error) { setValue((current) => ({ ...current, loading: false, error: organizationsResult.error.message })); return; }
     const organizationNames = new Map((organizationsResult.data ?? []).map((organization) => [String(organization.id), String(organization.name)]));
     const holdings = memberRows.map((row) => ({ id: String(row.organization_id), name: organizationNames.get(String(row.organization_id)) ?? "Holding", role: roleMap[String(row.role)] ?? "viewer", isPrimary: Boolean(row.is_primary) }));
     const selectedMembership = holdings.find((holding) => holding.id === activeOrganizationId) ?? holdings.find((holding) => holding.isPrimary) ?? holdings[0];
     const organizationId = selectedMembership.id;
+    const invitationsResult = selectedMembership.role === "viewer" ? null : await supabase.rpc("list_my_invitations");
+    const pendingInvitations = invitationsResult && !invitationsResult.error ? mapPendingInvitations(invitationsResult.data) : [];
     if (organizationId !== activeOrganizationId) { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }
     const organization = await supabase.from("organizations").select("name").eq("id", organizationId).single();
-    const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, distributionsResult, distributionItemsResult, bankAccountResult] = await Promise.all([
+    if (selectedMembership.role === "viewer") {
+      const memberResult = await supabase.rpc("get_member_portfolio", { target_org: organizationId });
+      if (memberResult.error) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, role: "viewer", loading: false, error: memberResult.error.message })); return; }
+      const memberData = (memberResult.data ?? {}) as Record<string, unknown>;
+      const summary = (memberData.summary ?? {}) as Record<string, unknown>;
+      const memberVisibility = visibilityFromRow((memberData.settings ?? {}) as Record<string, unknown>);
+      const memberSummary = { totalValue: Number(summary.totalValue ?? 0), totalBuildings: Number(summary.totalBuildings ?? 0), totalUnits: Number(summary.totalUnits ?? 0), totalRent: Number(summary.totalRent ?? 0) };
+      const ownershipSummary = ((memberData.ownership ?? []) as Array<Record<string, unknown>>).map((item) => ({ name: String(item.name ?? "Membro"), percentage: Number(item.percentage ?? 0) }));
+      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "viewer", memberVisibility, memberSummary, ownershipSummary, buildings: mapMemberBuildings((memberData.buildings ?? []) as Array<Record<string, unknown>>), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
+      return;
+    }
+    const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, distributionsResult, distributionItemsResult, bankAccountResult, visibilityResult] = await Promise.all([
       supabase.from("assets").select("id, name, current_value, status, source_key").eq("organization_id", organizationId),
       supabase.from("buildings").select("id, asset_id, address, city, state, postal_code, latitude, longitude, description, total_units, acquisition_date, acquisition_value, current_value, last_valuation_date, status, source_key, notes").eq("organization_id", organizationId),
       supabase.from("property_units").select("id, building_id, code, unit_type, potential_rent, status, quantity, notes, updated_at").eq("organization_id", organizationId).order("code"),
@@ -110,8 +168,9 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       supabase.from("distributions").select("id, distribution_date, description, total_value, status").eq("organization_id", organizationId).order("distribution_date", { ascending: false }),
       supabase.from("distribution_items").select("id, distribution_id, user_id, contact_id, percentage, value, payment_status, paid_at").eq("organization_id", organizationId),
       supabase.from("bank_accounts").select("id, name, initial_balance").eq("organization_id", organizationId).maybeSingle(),
+      supabase.from("member_visibility_settings").select("show_total_assets, show_property_values, show_rental_info, show_property_status, show_photos, show_locations, show_map, show_documents, show_ownership_by_beneficiary").eq("organization_id", organizationId).maybeSingle(),
     ]);
-    const firstError = [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, distributionsResult, distributionItemsResult, bankAccountResult].find((result) => result.error)?.error;
+    const firstError = [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, distributionsResult, distributionItemsResult, bankAccountResult, visibilityResult].find((result) => result.error)?.error;
     if (firstError) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, loading: false, error: firstError.message })); return; }
     const assets = (assetsResult.data ?? []) as Array<Record<string, unknown>>;
     const buildings = (buildingsResult.data ?? []) as Array<Record<string, unknown>>;
@@ -166,10 +225,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const monthlyProfit = mappedBuildings.reduce((total, building) => total + building.revenue, 0) - monthlyExpenses;
     const paidExpenses = expenses.filter((expense) => new Date(`${expense.expense_date}T12:00:00`) <= new Date()).reduce((total, expense) => total + Number(expense.value || 0), 0);
     const bankBalance = (bankAccount?.initialBalance ?? 0) + paidRent - paidExpenses - paidDistributions;
-    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: selectedMembership.role, buildings: mappedBuildings, expenses, leasePayments, distributions, bankAccount, bankBalance, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
+    const memberSummary = { totalValue: mappedBuildings.filter((building) => building.status !== "vendido").reduce((sum, building) => sum + building.value, 0), totalBuildings: mappedBuildings.filter((building) => building.status !== "vendido").length, totalUnits: mappedBuildings.reduce((sum, building) => sum + building.units, 0), totalRent: mappedBuildings.reduce((sum, building) => sum + building.revenue, 0) };
+    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: selectedMembership.role, memberVisibility: visibilityFromRow(visibilityResult.data as Record<string, unknown> | null), memberSummary, ownershipSummary: [], buildings: mappedBuildings, expenses, leasePayments, distributions, bankAccount, bankBalance, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
   }, [activeOrganizationId, session]);
 
-  useEffect(() => { if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session]);
+  useEffect(() => { if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session]);
   useEffect(() => {
     if (!session) return;
     const interval = window.setInterval(async () => {
