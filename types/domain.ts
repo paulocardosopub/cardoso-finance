@@ -17,6 +17,7 @@ export type MemberSummary = {
   totalBuildings: number;
   totalUnits: number;
   totalRent: number;
+  ownershipPercentage: number;
 };
 
 export type OwnershipSummary = { name: string; percentage: number };

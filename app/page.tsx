@@ -76,7 +76,7 @@ function MemberDashboard({ buildings, organizationId, userName, visibility, summ
       {visibility.showTotalAssets && <Metric icon={<CircleDollarSign size={15} />} label="Patrimônio total" value={compactBrl(summary.totalValue)} foot="Valor consolidado autorizado" positive />}
       <Metric icon={<Building2 size={15} />} label="Imóveis" value={String(summary.totalBuildings)} foot={`${summary.totalUnits || totalUnits} unidades cadastradas`} positive />
       {visibility.showPropertyStatus && <Metric icon={<Landmark size={15} />} label="Ocupação" value={`${totalUnits ? Math.round(totalOccupied / totalUnits * 100) : 0}%`} foot={`${totalOccupied} de ${totalUnits} unidades`} positive />}
-      {visibility.showRentalInfo && <Metric icon={<ArrowUpRight size={15} />} label="Aluguéis mensais" value={brl(summary.totalRent)} foot="Valor consolidado autorizado" positive />}
+      {visibility.showRentalInfo && <Metric icon={<ArrowUpRight size={15} />} label="Sua receita mensal" value={brl(summary.totalRent)} foot={`${summary.ownershipPercentage.toFixed(2).replace(".", ",")}% da receita da holding`} positive />}
     </section>
     <section className="dashboard-grid">
       {visibility.showPropertyValues && <div className="panel"><div className="panel-heading"><div><h2>Patrimônio por imóvel</h2><p>Distribuição dos valores compartilhados</p></div></div><WealthChart buildings={buildings} /></div>}
