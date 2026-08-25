@@ -11,6 +11,7 @@ import { buildingPath } from "@/lib/building-path";
 import { buildingIsForSale, sortBuildingsForDisplay } from "@/lib/building-order";
 import { useEffect, useState } from "react";
 import { PropertyMap, type PropertyMapPin } from "@/components/property-map";
+import { EmployeeDashboard } from "@/components/employee-dashboard";
 
 function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda" || unit.status === "venda_alugado"); }
 function isForSale(building: Building) { return buildingIsForSale(building); }
@@ -28,7 +29,7 @@ const welcomeMessages = [
 ];
 
 export default function DashboardPage() {
-  const { buildings, notifications, leasePayments, loading, organizationId, userName, bankBalance, monthlyExpenses, monthlyProfit, role, memberVisibility, memberSummary, ownershipSummary } = usePortfolio();
+  const { buildings, notifications, leasePayments, loading, organizationId, userName, bankBalance, monthlyExpenses, monthlyProfit, role, memberVisibility, memberSummary, ownershipSummary, refresh } = usePortfolio();
   const [welcomeIndex, setWelcomeIndex] = useState(0);
   useEffect(() => { setWelcomeIndex(Math.floor(Math.random() * welcomeMessages.length)); }, []);
   const activeBuildings = sortBuildingsForDisplay(buildings.filter((building) => building.status !== "vendido"));
@@ -48,6 +49,7 @@ export default function DashboardPage() {
   const saleBuildings = activeBuildings.filter(isForSale);
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando sua carteira...</p></div></div>;
   if (!organizationId) return <div className="content"><div className="empty-state"><Landmark size={30} /><h3>Crie sua primeira organização</h3><p>Depois da criação, os 62 registros válidos da planilha serão importados no Supabase.</p><Link href="/onboarding" className="button button-primary"><Plus size={15} /> Começar</Link></div></div>;
+  if (role === "employee") return <EmployeeDashboard buildings={buildings} organizationId={organizationId} userName={userName} refresh={refresh} />;
   if (role === "viewer") return <MemberDashboard buildings={activeBuildings} organizationId={organizationId} userName={userName} visibility={memberVisibility} summary={memberSummary} ownership={ownershipSummary} />;
   return <div className="content">
     <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Carteira sincronizada</div><h1>{welcomeMessages[welcomeIndex].replace("{name}", userName)}</h1><p className="subtitle">Dados reais da sua organização, com patrimônio baseado exclusivamente em AVALIAÇÃO.</p></div><Link href="/imoveis" className="button button-primary"><Plus size={15} /><span>Gerenciar imóveis</span></Link></div>

@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, Building2, Check, ChevronDown, CircleDollarSign, FileText, Home, Landmark, LayoutDashboard, LogOut, MapPinned, Menu, Receipt, Settings2, Users, WalletCards, X } from "lucide-react";
+import { ArrowUpRight, Bell, Building2, Check, ChevronDown, CircleDollarSign, FileText, Home, Landmark, LayoutDashboard, LogOut, MapPinned, Menu, Receipt, Settings2, Users, WalletCards, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { usePortfolio } from "@/components/portfolio-provider";
-import { memberRouteAllowed, roleLabels } from "@/lib/member-access";
+import { employeeRouteAllowed, memberRouteAllowed, roleLabels } from "@/lib/member-access";
 
 const primaryNav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -15,6 +15,7 @@ const primaryNav = [
   { href: "/financeiro", label: "Financeiro", icon: WalletCards },
   { href: "/despesas", label: "Despesas", icon: Receipt },
   { href: "/alugueis", label: "Aluguéis", icon: CircleDollarSign },
+  { href: "/creditos", label: "Créditos", icon: ArrowUpRight },
   { href: "/mapa", label: "Mapa", icon: MapPinned },
 ];
 const managementNav = [
@@ -29,6 +30,10 @@ const memberNav = [
   { href: "/despesas", label: "Despesas", icon: Receipt },
   { href: "/mapa", label: "Mapas", icon: MapPinned },
   { href: "/documentos", label: "Documentos", icon: FileText },
+];
+const employeeNav = [
+  { href: "/", label: "Painel operacional", icon: LayoutDashboard },
+  { href: "/imoveis", label: "Imóveis", icon: Building2 },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -57,9 +62,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [isPublic, pathname]);
   useEffect(() => {
     if (!isPublic && !loading && organizationId && role === "viewer" && !memberRouteAllowed(pathname)) router.replace("/");
+    if (!isPublic && !loading && organizationId && role === "employee" && !employeeRouteAllowed(pathname)) router.replace("/");
   }, [isPublic, loading, organizationId, pathname, role, router]);
   if (isPublic) return <>{children}</>;
-  if (!loading && organizationId && role === "viewer" && !memberRouteAllowed(pathname)) return <main className="auth-page" aria-busy="true" />;
+  if (!loading && organizationId && ((role === "viewer" && !memberRouteAllowed(pathname)) || (role === "employee" && !employeeRouteAllowed(pathname)))) return <main className="auth-page" aria-busy="true" />;
 
   async function signOut() {
     const supabase = createSupabaseBrowserClient();
@@ -104,11 +110,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {holdingMessage && <p className="holding-message">{holdingMessage}</p>}
         </div>}
       </div>
-      <div className="nav-label">{role === "viewer" ? "Consulta" : "Visão geral"}</div>
-      <nav className="nav">{(role === "viewer" ? memberNav : primaryNav).map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={pathname === href || (href !== "/" && pathname.startsWith(href)) ? "nav-link active" : "nav-link"}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav>
-      {role !== "viewer" && <><div className="nav-label" style={{ marginTop: 25 }}>Gestão</div><nav className="nav">{managementNav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={pathname.startsWith(href) ? "nav-link active" : "nav-link"}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav></>}
+      <div className="nav-label">{role === "viewer" ? "Consulta" : role === "employee" ? "Operação" : "Visão geral"}</div>
+      <nav className="nav">{(role === "viewer" ? memberNav : role === "employee" ? employeeNav : primaryNav).map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={pathname === href || (href !== "/" && pathname.startsWith(href)) ? "nav-link active" : "nav-link"}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav>
+      {role !== "viewer" && role !== "employee" && <><div className="nav-label" style={{ marginTop: 25 }}>Gestão</div><nav className="nav">{managementNav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={pathname.startsWith(href) ? "nav-link active" : "nav-link"}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav></>}
       <div className="sidebar-bottom"><div className="profile-mini"><div className="avatar">{userAvatarUrl ? <img src={userAvatarUrl} alt={`Foto de ${userName}`} /> : userInitials}</div><div><strong>{userName}</strong><small>{roleLabels[role]}</small></div><button className="icon-btn" onClick={signOut} aria-label="Sair"><LogOut size={14} /></button></div></div>
     </aside>
-    <main className="main"><header className="topbar"><button className="icon-btn mobile-menu" onClick={() => setOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button><div className="breadcrumb"><Home size={13} /><span>/</span><strong>{pathname === "/" ? "Visão geral" : pathname.slice(1).replaceAll("-", " ")}</strong></div><div className="top-actions">{role !== "viewer" && <button className={notifications.length ? "icon-btn notification-dot" : "icon-btn"} aria-label="Notificações"><Bell size={17} /></button>}<div className="avatar" style={{ width: 27, height: 27, fontSize: 10 }}>{userAvatarUrl ? <img src={userAvatarUrl} alt={`Foto de ${userName}`} /> : userInitials}</div></div></header>{children}</main>
+    <main className="main"><header className="topbar"><button className="icon-btn mobile-menu" onClick={() => setOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button><div className="breadcrumb"><Home size={13} /><span>/</span><strong>{pathname === "/" ? role === "employee" ? "Painel operacional" : "Visão geral" : pathname.slice(1).replaceAll("-", " ")}</strong></div><div className="top-actions">{role !== "viewer" && role !== "employee" && <button className={notifications.length ? "icon-btn notification-dot" : "icon-btn"} aria-label="Notificações"><Bell size={17} /></button>}<div className="avatar" style={{ width: 27, height: 27, fontSize: 10 }}>{userAvatarUrl ? <img src={userAvatarUrl} alt={`Foto de ${userName}`} /> : userInitials}</div></div></header>{children}</main>
   </div>;
 }

@@ -1,5 +1,5 @@
 export type OrganizationType = "personal" | "family" | "company";
-export type MemberRole = "owner" | "admin" | "manager" | "viewer";
+export type MemberRole = "owner" | "admin" | "manager" | "employee" | "viewer";
 export type MemberVisibility = {
   showTotalAssets: boolean;
   showPropertyValues: boolean;
@@ -153,6 +153,8 @@ export type LeaseSummary = {
   contractDocumentUrl?: string;
   notes?: string;
   status: string;
+  currentPaymentStatus?: string;
+  currentPaymentId?: string;
 };
 
 export type NotificationItem = {

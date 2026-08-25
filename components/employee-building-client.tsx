@@ -1,0 +1,105 @@
+"use client";
+
+import Link from "next/link";
+import { ArrowLeft, Building2, Check, CheckCircle2, FileUp, Image as ImageIcon, MapPin, Paperclip, Save, Star, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { usePortfolio } from "@/components/portfolio-provider";
+import { brl } from "@/lib/format";
+import type { Building, PropertyUnit, UnitStatus } from "@/types/domain";
+
+const labels: Record<string, string> = { alugado: "Alugado", vago: "Vago", venda: "À venda", venda_alugado: "À venda e alugado", manutencao: "Manutenção", servico: "Serviço", negociacao: "Negociação" };
+const dbStatus: Record<UnitStatus, string> = { alugado: "rented", vago: "vacant", manutencao: "maintenance", servico: "service", negociacao: "negotiation", venda: "for_sale", venda_alugado: "for_sale", vendido: "sold" };
+type DocumentRow = { id: string; name: string; category: string; storage_path: string; mime_type?: string; is_primary?: boolean; signedUrl?: string };
+
+export function EmployeeBuildingClient({ building }: { building: Building }) {
+  const { organizationId, refresh } = usePortfolio();
+  const [editing, setEditing] = useState<PropertyUnit | null>(null);
+  const [filesUnit, setFilesUnit] = useState<PropertyUnit | null>(null);
+  const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [primaryPhotos, setPrimaryPhotos] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
+
+  async function loadDocuments(unitId?: string) {
+    if (!organizationId) return;
+    const supabase = createSupabaseBrowserClient(); if (!supabase) return;
+    const result = await supabase.rpc("list_employee_documents", { target_org: organizationId });
+    if (result.error) { setMessage("Não foi possível carregar os arquivos."); return; }
+    const rows = (result.data ?? []) as DocumentRow[];
+    const selected = unitId ? rows.filter((row) => String((row as DocumentRow & { unit_id?: string }).unit_id) === unitId) : rows;
+    const withLinks = await Promise.all(selected.map(async (row) => ({ ...row, signedUrl: (await supabase.storage.from("organization-documents").createSignedUrl(row.storage_path, 3600)).data?.signedUrl })));
+    setDocuments(withLinks);
+    if (!unitId) {
+      const entries = await Promise.all(rows.filter((row) => row.category === "photo" && row.is_primary).map(async (row) => ({ unitId: String((row as DocumentRow & { unit_id?: string }).unit_id), url: (await supabase.storage.from("organization-documents").createSignedUrl(row.storage_path, 3600)).data?.signedUrl })));
+      setPrimaryPhotos(Object.fromEntries(entries.filter((entry) => entry.unitId && entry.url).map((entry) => [entry.unitId, entry.url as string])));
+    }
+  }
+  useEffect(() => { void loadDocuments(); }, [organizationId, building.id]);
+
+  const units = (building.unitsData ?? []).filter((unit) => `${unit.code} ${unit.type} ${unit.tenantName ?? ""}`.toLowerCase().includes(query.toLowerCase()));
+  const occupied = (building.unitsData ?? []).filter((unit) => unit.status === "alugado" || unit.status === "venda_alugado" || unit.lease).length;
+  const forSale = building.status === "venda" || (building.unitsData ?? []).some((unit) => unit.status === "venda" || unit.status === "venda_alugado");
+
+  async function saveUnit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!organizationId || !editing) return;
+    const form = new FormData(event.currentTarget);
+    const status = String(form.get("status")) as UnitStatus;
+    const rent = Number(String(form.get("rent") ?? "0").replace(",", "."));
+    const supabase = createSupabaseBrowserClient(); if (!supabase) return;
+    setBusy(true); setMessage("");
+    const result = await supabase.rpc("update_employee_unit", { target_org: organizationId, target_unit: editing.id, unit_status: dbStatus[status] ?? "vacant", rental_value: Number.isFinite(rent) ? rent : 0, tenant_name: String(form.get("tenant") ?? "").trim(), due_day: Number(form.get("dueDay") || 10) });
+    setMessage(result.error ? "Não foi possível atualizar a unidade." : "Unidade, aluguel e inquilino atualizados.");
+    if (!result.error) { setEditing(null); await refresh(); }
+    setBusy(false);
+  }
+  async function togglePayment(unit: PropertyUnit, markPaid: boolean) {
+    if (!organizationId || !unit.lease?.id) return;
+    const supabase = createSupabaseBrowserClient(); if (!supabase) return;
+    setBusy(true); setMessage("");
+    const result = await supabase.rpc("toggle_lease_payment", { target_org: organizationId, target_lease: unit.lease.id, target_competence: `${new Date().toISOString().slice(0, 7)}-01`, mark_paid: markPaid });
+    setMessage(result.error ? "Não foi possível atualizar o pagamento." : (markPaid ? "Pagamento confirmado e crédito criado." : "Pagamento desmarcado e crédito desfeito."));
+    if (!result.error) await refresh();
+    setBusy(false);
+  }
+  async function markVisited(unit?: PropertyUnit) {
+    if (!organizationId || !building.dbId) return;
+    const supabase = createSupabaseBrowserClient(); if (!supabase) return;
+    setBusy(true); setMessage("");
+    const position = await new Promise<GeolocationPosition | null>((resolve) => navigator.geolocation?.getCurrentPosition(resolve, () => resolve(null), { enableHighAccuracy: true, timeout: 7000 }) ?? resolve(null));
+    const result = await supabase.rpc("record_property_visit", { target_org: organizationId, target_building: building.dbId, target_unit: unit?.id ?? null, visit_latitude: position?.coords.latitude ?? null, visit_longitude: position?.coords.longitude ?? null, visit_notes: unit ? `Visita registrada na unidade ${unit.code}` : "Visita registrada no imóvel" });
+    setMessage(result.error ? "Não foi possível registrar a visita." : `Visita registrada${unit ? ` · ${unit.code}` : ""} com data, hora e localização.`);
+    setBusy(false);
+  }
+  async function openFiles(unit: PropertyUnit) {
+    setFilesUnit(unit); await loadDocuments(unit.id);
+  }
+  async function uploadDocuments(event: React.ChangeEvent<HTMLInputElement>, category: "photo" | "contract") {
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length || !filesUnit || !organizationId) return;
+    const supabase = createSupabaseBrowserClient(); if (!supabase) return;
+    setBusy(true); setMessage("");
+    const user = (await supabase.auth.getUser()).data.user;
+    let makePrimary = false;
+    if (category === "photo") {
+      const primary = await supabase.from("documents").select("id").eq("organization_id", organizationId).eq("unit_id", filesUnit.id).eq("category", "photo").eq("is_primary", true).limit(1);
+      makePrimary = !primary.data?.length;
+    }
+    let count = 0;
+    for (const file of files) {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+      const path = `${organizationId}/${filesUnit.id}/${crypto.randomUUID()}-${safeName}`;
+      const upload = await supabase.storage.from("organization-documents").upload(path, file, { upsert: false, contentType: file.type || undefined });
+      if (upload.error) { setMessage("Não foi possível enviar um dos arquivos."); continue; }
+      const inserted = await supabase.from("documents").insert({ organization_id: organizationId, unit_id: filesUnit.id, name: file.name, category, storage_path: path, mime_type: file.type, size_bytes: file.size, uploaded_by: user?.id, is_primary: category === "photo" && makePrimary && count === 0 });
+      if (!inserted.error) count += 1;
+    }
+    event.currentTarget.value = "";
+    setMessage(count ? `${count} arquivo${count > 1 ? "s" : ""} enviado${count > 1 ? "s" : ""}.` : "Nenhum arquivo foi enviado.");
+    await loadDocuments(filesUnit.id); await loadDocuments(); setBusy(false);
+  }
+  if (!organizationId) return null;
+  return <div className="content"><Link href="/imoveis" className="breadcrumb" style={{ marginBottom: 25, display: "inline-flex" }}><ArrowLeft size={13} /> Imóveis</Link><div className="page-heading"><div><div className="eyebrow"><Building2 size={13} /> Operação imobiliária</div><h1>{building.name}</h1><p className="subtitle"><MapPin size={12} style={{ verticalAlign: "-2px" }} /> {[building.city, building.state].filter(Boolean).join(", ")} · {building.units} unidades</p></div><button type="button" className="button button-primary" onClick={() => void markVisited()} disabled={busy}><MapPin size={14} /> Marcar imóvel visitado</button></div>{message && <p className={message.startsWith("Não") ? "form-error" : "form-success"}><CheckCircle2 size={13} /> {message}</p>}<div className="metrics"><div className="metric-card"><div className="metric-top"><span>Unidades ocupadas</span></div><div className="metric-value">{occupied}</div><div className="metric-foot">de {building.units} unidades</div></div><div className="metric-card"><div className="metric-top"><span>Unidades livres</span></div><div className="metric-value">{Math.max(0, building.units - occupied)}</div><div className="metric-foot">Para locação</div></div><div className="metric-card"><div className="metric-top"><span>Situação</span></div><div className="metric-value" style={{ fontSize: 22 }}>{forSale ? "À venda" : "Operando"}</div><div className="metric-foot">Acompanhamento presencial</div></div></div><div className="panel"><div className="panel-heading"><div><h2>Unidades e contratos</h2><p>{units.length} unidades · altere aluguel, ocupação e inquilino sem acessar patrimônio ou receitas consolidadas.</p></div><div style={{ display: "flex", gap: 8 }}><input className="table-filter" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar unidade ou inquilino" /></div></div><div className="table-wrap"><table><thead><tr><th>Foto</th><th>Unidade</th><th>Status</th><th>Inquilino</th><th>Aluguel</th><th>Pagamento</th><th>Ações</th></tr></thead><tbody>{units.map((unit) => { const paid = unit.lease?.currentPaymentStatus === "paid"; return <tr key={unit.id}><td><div className="unit-photo-thumb">{primaryPhotos[unit.id] ? <img src={primaryPhotos[unit.id]} alt={`Foto ${unit.code}`} /> : <ImageIcon size={18} />}</div></td><td><strong>{unit.code}</strong><small>{unit.type}</small></td><td><span className={`status status-${unit.status === "alugado" || unit.status === "venda_alugado" ? "alugado" : unit.status}`}>{labels[unit.status]}</span></td><td>{unit.tenantName ?? unit.lease?.tenantName ?? "Não informado"}</td><td>{unit.rent ? brl(unit.rent) : "—"}</td><td>{unit.lease ? <button type="button" className={paid ? "button button-ghost button-small" : "button button-primary button-small"} onClick={() => void togglePayment(unit, !paid)} disabled={busy}>{paid ? <><Check size={13} /> Pago</> : <><X size={13} /> Pendente</>}</button> : "—"}</td><td><button type="button" className="icon-btn" onClick={() => setEditing(unit)} aria-label={`Editar ${unit.code}`}><Save size={14} /></button><button type="button" className="icon-btn" onClick={() => void openFiles(unit)} aria-label={`Fotos e contratos de ${unit.code}`}><Paperclip size={14} /></button><button type="button" className="icon-btn" onClick={() => void markVisited(unit)} disabled={busy} aria-label={`Marcar visita ${unit.code}`}><MapPin size={14} /></button></td></tr>; })}</tbody></table></div></div>{filesUnit && <div className="modal-backdrop"><section className="edit-modal"><div className="panel-heading"><div><h2>Fotos e contratos · {filesUnit.code}</h2><p>Adicione arquivos sem excluir o histórico existente.</p></div><button type="button" className="icon-btn" onClick={() => setFilesUnit(null)} aria-label="Fechar"><X size={16} /></button></div><div className="upload-grid"><label className="upload-card"><ImageIcon size={22} /><strong>Adicionar fotos</strong><small>JPG, PNG ou WebP</small><input type="file" accept="image/*" multiple onChange={(event) => void uploadDocuments(event, "photo")} /></label><label className="upload-card"><FileUp size={22} /><strong>Adicionar contrato</strong><small>PDF ou documento</small><input type="file" accept="application/pdf,.doc,.docx,image/*" onChange={(event) => void uploadDocuments(event, "contract")} /></label></div>{documents.length ? <div className="document-list">{documents.map((doc) => <div key={doc.id} className="document-item">{doc.signedUrl ? <a href={doc.signedUrl} target="_blank" rel="noreferrer" className="document-link">{doc.category === "photo" ? <img className="document-thumb" src={doc.signedUrl} alt={doc.name} /> : <FileUp size={15} />}<span>{doc.name}</span></a> : <span className="document-link"><FileUp size={15} /><span>{doc.name}</span></span>}{doc.category === "photo" && doc.is_primary && <span className="primary-badge"><Star size={12} /> Principal</span>}</div>)}</div> : <p className="muted">Nenhum arquivo enviado.</p>}</section></div>}{editing && <div className="modal-backdrop"><form className="edit-modal" onSubmit={saveUnit}><div className="panel-heading"><div><h2>Editar {editing.code}</h2><p>Atualize status, aluguel e inquilino.</p></div><button type="button" className="icon-btn" onClick={() => setEditing(null)} aria-label="Fechar"><X size={16} /></button></div><div className="form-grid"><label>Unidade<input name="code" value={editing.code} readOnly /></label><label>Tipo<input name="type" value={editing.type} readOnly /></label><label>Status<select name="status" defaultValue={editing.status}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Aluguel mensal<input name="rent" type="number" min="0" step="0.01" defaultValue={editing.rent} /></label><label>Inquilino<input name="tenant" defaultValue={editing.tenantName ?? editing.lease?.tenantName ?? ""} placeholder="Nome do inquilino" /></label><label>Dia de vencimento<input name="dueDay" type="number" min="1" max="31" defaultValue={editing.lease?.dueDay ?? 10} /></label></div><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={() => setEditing(null)}>Cancelar</button><button type="submit" className="button button-primary" disabled={busy}><Save size={14} /> {busy ? "Salvando…" : "Salvar alterações"}</button></div></form></div>}</div>;
+}

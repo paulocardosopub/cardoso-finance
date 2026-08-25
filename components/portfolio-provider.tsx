@@ -44,7 +44,7 @@ type PendingInvitation = { id: string; organizationId: string; organizationName:
 const PortfolioContext = createContext<PortfolioContextValue | null>(null);
 
 const statusMap: Record<string, PropertyUnit["status"]> = { rented: "alugado", vacant: "vago", maintenance: "manutencao", service: "servico", negotiation: "negociacao", for_sale: "venda", sold: "vendido" };
-const roleMap: Record<string, MemberRole> = { owner: "owner", admin: "admin", manager: "manager", viewer: "viewer" };
+const roleMap: Record<string, MemberRole> = { owner: "owner", admin: "admin", manager: "manager", employee: "employee", viewer: "viewer" };
 
 function displayName(session: Session | null, profileName?: string) {
   const metadata = session?.user.user_metadata as Record<string, unknown> | undefined;
@@ -102,6 +102,36 @@ function mapMemberBuildings(rows: Array<Record<string, unknown>>, rentFactor = 1
   }));
 }
 
+function mapEmployeeBuildings(rows: Array<Record<string, unknown>>): Building[] {
+  const buildingStatusMap: Record<string, Building["status"]> = { active: "ativo", renovation: "reforma", for_sale: "venda", sold: "vendido", inactive: "inativo" };
+  return sortBuildings(rows.map((row) => {
+    const units = ((row.units ?? []) as Array<Record<string, unknown>>).map((unit): PropertyUnit => {
+      const lease = unit.lease as Record<string, unknown> | null | undefined;
+      return {
+        id: String(unit.id), code: String(unit.code), type: String(unit.type ?? "Unidade"), area: 0,
+        status: statusMap[String(unit.status)] ?? "vago", rent: Number(unit.rent ?? 0), quantity: Number(unit.quantity ?? 1),
+        tenantName: unit.tenantName ? String(unit.tenantName) : undefined,
+        lease: lease ? {
+          id: String(lease.id), tenantId: lease.tenantId ? String(lease.tenantId) : undefined,
+          tenantName: lease.tenantName ? String(lease.tenantName) : undefined, currentRent: Number(lease.currentRent ?? unit.rent ?? 0),
+          dueDay: Number(lease.dueDay ?? 10), startDate: lease.startDate ? String(lease.startDate) : undefined,
+          endDate: lease.endDate ? String(lease.endDate) : undefined, status: String(lease.status ?? "active"),
+          currentPaymentStatus: lease.currentPaymentStatus ? String(lease.currentPaymentStatus) : "pending",
+          currentPaymentId: lease.currentPaymentId ? String(lease.currentPaymentId) : undefined,
+        } : undefined,
+      };
+    });
+    return {
+      id: String(row.id), dbId: String(row.db_id), assetId: String(row.asset_id), sourceKey: row.source_key ? String(row.source_key) : undefined,
+      name: String(row.name ?? "Imóvel"), address: String(row.address ?? ""), city: String(row.city ?? ""), state: String(row.state ?? ""),
+      postalCode: row.postal_code ? String(row.postal_code) : undefined, latitude: row.latitude == null ? undefined : Number(row.latitude), longitude: row.longitude == null ? undefined : Number(row.longitude),
+      description: String(row.description ?? ""), value: 0, units: units.reduce((sum, unit) => sum + (unit.quantity ?? 1), 0),
+      occupied: units.reduce((sum, unit) => sum + ((unit.status === "alugado" || unit.status === "venda_alugado") ? unit.quantity ?? 1 : 0), 0),
+      revenue: 0, expenses: 0, status: buildingStatusMap[String(row.status)] ?? "ativo", image: `db-${row.db_id}`, unitsData: units, sourceRows: units.length,
+    };
+  }));
+}
+
 export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("cardoso-active-organization"));
@@ -144,6 +174,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const pendingInvitations = invitationsResult && !invitationsResult.error ? mapPendingInvitations(invitationsResult.data) : [];
     if (organizationId !== activeOrganizationId) { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }
     const organization = await supabase.from("organizations").select("name").eq("id", organizationId).single();
+    if (selectedMembership.role === "employee") {
+      const employeeResult = await supabase.rpc("get_employee_portfolio", { target_org: organizationId });
+      if (employeeResult.error) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, role: "employee", loading: false, error: employeeResult.error.message })); return; }
+      const employeeData = (employeeResult.data ?? {}) as Record<string, unknown>;
+      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "employee", memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: mapEmployeeBuildings((employeeData.buildings ?? []) as Array<Record<string, unknown>>), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
+      return;
+    }
     if (selectedMembership.role === "viewer") {
       const memberResult = await supabase.rpc("get_member_portfolio", { target_org: organizationId });
       if (memberResult.error) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, role: "viewer", loading: false, error: memberResult.error.message })); return; }

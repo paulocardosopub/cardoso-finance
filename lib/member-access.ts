@@ -17,12 +17,18 @@ export const roleLabels: Record<MemberRole, string> = {
   owner: "Proprietário",
   admin: "Administrador",
   manager: "Gestor",
+  employee: "Funcionária",
   viewer: "Membro",
 };
 
 export function memberRouteAllowed(pathname: string) {
   const route = pathname.replace(/\/+$/, "") || "/";
   return route === "/" || route === "/imoveis" || route.startsWith("/imoveis/") || route === "/patrimonio" || route === "/despesas" || route === "/mapa" || route === "/documentos";
+}
+
+export function employeeRouteAllowed(pathname: string) {
+  const route = pathname.replace(/\/+$/, "") || "/";
+  return route === "/" || route === "/imoveis" || route.startsWith("/imoveis/");
 }
 
 export type AuthorizedDocument = {
@@ -42,6 +48,10 @@ export type AuthorizedDocument = {
 export async function listAuthorizedDocuments(supabase: SupabaseClient, organizationId: string, role: MemberRole) {
   if (role === "viewer") {
     const result = await supabase.rpc("list_member_documents", { target_org: organizationId });
+    return { data: (result.data ?? []) as AuthorizedDocument[], error: result.error };
+  }
+  if (role === "employee") {
+    const result = await supabase.rpc("list_employee_documents", { target_org: organizationId });
     return { data: (result.data ?? []) as AuthorizedDocument[], error: result.error };
   }
   const result = await supabase

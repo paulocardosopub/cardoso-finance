@@ -9,6 +9,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { brl, compactBrl } from "@/lib/format";
 import type { PropertyUnit, UnitStatus } from "@/types/domain";
 import { listAuthorizedDocuments } from "@/lib/member-access";
+import { EmployeeBuildingClient } from "@/components/employee-building-client";
 
 const labels: Record<string, string> = { alugado: "Alugado", vago: "Vago", venda: "À venda", venda_alugado: "À venda e alugado", manutencao: "Manutenção", servico: "Serviço", negociacao: "Negociação", vendido: "Vendido" };
 const dbStatus: Record<UnitStatus, string> = { alugado: "rented", vago: "vacant", manutencao: "maintenance", servico: "service", negociacao: "negotiation", venda: "for_sale", venda_alugado: "for_sale", vendido: "sold" };
@@ -66,6 +67,7 @@ export default function BuildingDetailClient() {
   if (!building || !organizationId) return <div className="content"><div className="empty-state"><h3>Imóvel não encontrado</h3><Link href="/imoveis" className="button button-primary">Voltar</Link></div></div>;
   const currentBuilding = building;
   const occupancy = building.units ? Math.round((building.occupied / building.units) * 100) : 0;
+  if (role === "employee") return <EmployeeBuildingClient building={building} />;
 
   async function saveBuildingDetails(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
