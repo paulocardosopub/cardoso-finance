@@ -6,6 +6,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { BankAccount, Building, DistributionRecord, ExpenseRecord, LeasePaymentRecord, LeaseSummary, MemberRole, MemberSummary, MemberVisibility, NotificationItem, OwnershipSummary, PropertyUnit } from "@/types/domain";
 import { sortBuildings } from "@/lib/building-order";
 import { defaultMemberVisibility } from "@/lib/member-access";
+import { unitsMonthlyRent } from "@/lib/rent";
 
 type PortfolioContextValue = {
   organizationId: string | null;
@@ -99,7 +100,7 @@ function mapMemberBuildings(rows: Array<Record<string, unknown>>, rentFactor = 1
       name: String(row.name ?? "Prédio"), address: String(row.address ?? ""), city: String(row.city ?? ""), state: String(row.state ?? ""),
       postalCode: row.postal_code ? String(row.postal_code) : undefined, latitude: Number.isFinite(latitude) ? latitude : undefined, longitude: Number.isFinite(longitude) ? longitude : undefined,
       description: String(row.description ?? ""), value: Number(row.value ?? 0), units: unitsTotal, occupied,
-      revenue: units.reduce((sum, unit) => sum + unit.rent, 0), expenses: 0,
+      revenue: unitsMonthlyRent(units), expenses: 0,
       status: row.status ? buildingStatusMap[String(row.status)] ?? "ativo" : "ativo", image: `db-${row.db_id}`, unitsData: units, sourceRows: units.length,
     };
   }));
@@ -130,7 +131,7 @@ function mapEmployeeBuildings(rows: Array<Record<string, unknown>>): Building[] 
       postalCode: row.postal_code ? String(row.postal_code) : undefined, latitude: row.latitude == null ? undefined : Number(row.latitude), longitude: row.longitude == null ? undefined : Number(row.longitude),
       description: String(row.description ?? ""), value: 0, units: units.reduce((sum, unit) => sum + (unit.quantity ?? 1), 0),
       occupied: units.reduce((sum, unit) => sum + ((unit.status === "alugado" || unit.status === "venda_alugado") ? unit.quantity ?? 1 : 0), 0),
-      revenue: 0, expenses: 0, status: buildingStatusMap[String(row.status)] ?? "ativo", image: `db-${row.db_id}`, unitsData: units, sourceRows: units.length,
+      revenue: unitsMonthlyRent(units), expenses: 0, status: buildingStatusMap[String(row.status)] ?? "ativo", image: `db-${row.db_id}`, unitsData: units, sourceRows: units.length,
     };
   }));
 }
@@ -267,7 +268,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       const occupied = list.reduce((sum, unit) => sum + (unit.status === "alugado" || unit.status === "venda_alugado" || unit.rent > 0 ? unit.quantity ?? 1 : 0), 0);
       const latitude = row.latitude == null || row.latitude === "" ? undefined : Number(row.latitude);
       const longitude = row.longitude == null || row.longitude === "" ? undefined : Number(row.longitude);
-      return { id: String(row.source_key ?? row.id), dbId: String(row.id), assetId: asset?.id ? String(asset.id) : undefined, sourceKey: row.source_key ? String(row.source_key) : undefined, name: String(asset?.name ?? "Prédio"), address: String(row.address ?? ""), city: String(row.city ?? ""), state: String(row.state ?? ""), postalCode: row.postal_code ? String(row.postal_code) : undefined, latitude: Number.isFinite(latitude) ? latitude : undefined, longitude: Number.isFinite(longitude) ? longitude : undefined, description: String(row.description ?? ""), acquisitionDate: row.acquisition_date ? String(row.acquisition_date) : undefined, acquisitionValue: Number(row.acquisition_value ?? 0), lastValuationDate: row.last_valuation_date ? String(row.last_valuation_date) : undefined, notes: String(row.notes ?? ""), value: Number(row.current_value ?? asset?.current_value ?? 0), units: unitsTotal, occupied, revenue: list.reduce((sum, unit) => sum + unit.rent, 0), expenses: 0, status: buildingStatusMap[String(row.status)] ?? "ativo", image: `db-${row.id}`, unitsData: list, sourceRows: list.length };
+      return { id: String(row.source_key ?? row.id), dbId: String(row.id), assetId: asset?.id ? String(asset.id) : undefined, sourceKey: row.source_key ? String(row.source_key) : undefined, name: String(asset?.name ?? "Prédio"), address: String(row.address ?? ""), city: String(row.city ?? ""), state: String(row.state ?? ""), postalCode: row.postal_code ? String(row.postal_code) : undefined, latitude: Number.isFinite(latitude) ? latitude : undefined, longitude: Number.isFinite(longitude) ? longitude : undefined, description: String(row.description ?? ""), acquisitionDate: row.acquisition_date ? String(row.acquisition_date) : undefined, acquisitionValue: Number(row.acquisition_value ?? 0), lastValuationDate: row.last_valuation_date ? String(row.last_valuation_date) : undefined, notes: String(row.notes ?? ""), value: Number(row.current_value ?? asset?.current_value ?? 0), units: unitsTotal, occupied, revenue: unitsMonthlyRent(list), expenses: 0, status: buildingStatusMap[String(row.status)] ?? "ativo", image: `db-${row.id}`, unitsData: list, sourceRows: list.length };
     }));
     const currentMonth = new Date().toISOString().slice(0, 7);
     const monthlyExpenses = expenses.filter((expense) => expense.expense_kind !== "one_time" || expense.expense_date?.startsWith(currentMonth)).reduce((total, expense) => total + Number(expense.value || 0), 0);

@@ -10,6 +10,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { buildingPath } from "@/lib/building-path";
 import { buildingIsForSale, sortBuildingsForDisplay } from "@/lib/building-order";
 import { listAuthorizedDocuments } from "@/lib/member-access";
+import { buildingsMonthlyRent, unitMonthlyRent } from "@/lib/rent";
 
 function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda" || unit.status === "venda_alugado"); }
 function isForSale(building: Building) { return buildingIsForSale(building); }
@@ -59,7 +60,7 @@ export default function ImoveisPage() {
   const totalValue = activeBuildings.reduce((total, building) => total + building.value, 0);
   const totalUnits = activeBuildings.reduce((total, building) => total + building.units, 0);
   const totalOccupied = activeBuildings.reduce((total, building) => total + building.occupied, 0);
-  const totalRevenue = activeBuildings.reduce((total, building) => total + building.revenue, 0);
+  const totalRevenue = buildingsMonthlyRent(activeBuildings);
   async function createBuilding(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || role === "viewer") return;
@@ -156,7 +157,7 @@ function EmployeeProperties({ organizationId, buildings, buildingPhotos, query, 
   function buildingTotals(building: Building) {
     return (building.unitsData ?? []).reduce((totals, unit) => {
       if (unit.rent <= 0) return totals;
-      const expected = unit.rent * (unit.quantity ?? 1);
+      const expected = unitMonthlyRent(unit);
       const payment = unit.lease?.id ? paymentByLease.get(unit.lease.id) : undefined;
       const received = payment && (payment.status === "paid" || Number(payment.received_amount) > 0) ? Number(payment.net_amount || payment.received_amount || 0) : 0;
       return { expected: totals.expected + expected, received: totals.received + received };

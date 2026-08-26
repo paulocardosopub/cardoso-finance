@@ -1,4 +1,5 @@
 import type { Building, PropertyUnit } from "@/types/domain";
+import { unitsMonthlyRent } from "@/lib/rent";
 
 export type InitialProperty = {
   id: string;
@@ -133,7 +134,7 @@ export const initialBuildings: Building[] = Array.from(grouped.entries()).map(([
     value: properties.reduce((total, property) => total + property.appraisal, 0),
     units,
     occupied,
-    revenue: properties.reduce((total, property) => total + (property.rent ?? 0), 0),
+    revenue: unitsMonthlyRent(unitsData),
     expenses: 0,
     status: buildingStatus(properties),
     image: `imported-${buildingId}`,

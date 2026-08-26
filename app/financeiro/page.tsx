@@ -7,6 +7,7 @@ import { usePortfolio } from "@/components/portfolio-provider";
 import { brl } from "@/lib/format";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { currentMonthKey, monthLabel, shiftMonth } from "@/lib/month";
+import { unitsMonthlyRent } from "@/lib/rent";
 
 type FinancialHistoryRow = { id: string; event_type: "credit" | "debit"; amount: number; description: string; occurred_at: string };
 
@@ -23,7 +24,7 @@ export default function FinanceiroPage() {
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
     supabase.from("financial_history").select("id, event_type, amount, description, occurred_at").eq("organization_id", organizationId).order("occurred_at", { ascending: false }).limit(100).then(({ data }) => setHistory((data ?? []) as FinancialHistoryRow[]));
   }, [organizationId]);
-  const monthlyRent = rentalUnits.reduce((total, unit) => total + unit.rent, 0);
+  const monthlyRent = unitsMonthlyRent(rentalUnits);
   const periodPayments = leasePayments.filter((payment) => payment.competence.startsWith(selectedMonth));
   const periodReceived = periodPayments.reduce((total, payment) => total + Number(payment.netAmount || payment.receivedAmount || 0), 0);
   const rentedUnits = rentalUnits.reduce((total, unit) => total + (unit.quantity ?? 1), 0);

@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { PropertyMap, type PropertyMapPin } from "@/components/property-map";
 import { EmployeeDashboard } from "@/components/employee-dashboard";
 import { monthLabel, currentMonthKey } from "@/lib/month";
+import { buildingsMonthlyRent } from "@/lib/rent";
 
 function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda" || unit.status === "venda_alugado"); }
 function isForSale(building: Building) { return buildingIsForSale(building); }
@@ -35,7 +36,7 @@ export default function DashboardPage() {
   useEffect(() => { setWelcomeIndex(Math.floor(Math.random() * welcomeMessages.length)); }, []);
   const activeBuildings = sortBuildingsForDisplay(buildings.filter((building) => building.status !== "vendido"));
   const totalValue = activeBuildings.reduce((total, building) => total + building.value, 0);
-  const totalRevenue = activeBuildings.reduce((total, building) => total + building.revenue, 0);
+  const totalRevenue = buildingsMonthlyRent(activeBuildings);
   const occupied = activeBuildings.reduce((total, building) => total + building.occupied, 0);
   const units = activeBuildings.reduce((total, building) => total + building.units, 0);
   const occupancy = units ? Math.round((occupied / units) * 100) : 0;
