@@ -138,6 +138,7 @@ function mapEmployeeBuildings(rows: Array<Record<string, unknown>>): Building[] 
 
 export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
+  const [sessionResolved, setSessionResolved] = useState(false);
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("cardoso-active-organization"));
   const [viewAs, setViewAsState] = useState<"actual" | "viewer" | "employee">(() => typeof window === "undefined" ? "actual" : (window.localStorage.getItem("cardoso-view-as") as "actual" | "viewer" | "employee" | null) ?? "actual");
   const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "setPrimaryOrganization" | "acceptInvitation" | "declineInvitation" | "setViewAs">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", userEmail: "", userPhone: "", userAvatarUrl: "", holdings: [], pendingInvitations: [], role: "viewer", actualRole: "viewer", viewAs: "actual", memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" });
@@ -145,7 +146,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     if (!supabase) { setValue((current) => ({ ...current, loading: false, error: "Supabase não configurado." })); return; }
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setSessionResolved(true); });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     return () => listener.subscription.unsubscribe();
   }, []);
@@ -153,7 +154,9 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !session) { setValue((current) => ({ ...current, loading: false })); return; }
-    setValue((current) => ({ ...current, loading: true, error: "" }));
+    // Clear the previous organization's role and data before any request so a
+    // fast refresh can never render a stale administrator menu or records.
+    setValue((current) => ({ ...current, organizationId: null, organizationName: "Cardoso Finance", holdings: [], role: "viewer", actualRole: "viewer", memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" }));
     const membershipsResult = await supabase.from("organization_members").select("organization_id, role, joined_at, is_primary").eq("user_id", session.user.id).order("joined_at", { ascending: true });
     if (membershipsResult.error) { setValue((current) => ({ ...current, loading: false, error: membershipsResult.error.message })); return; }
     const profile = await supabase.from("profiles").select("full_name, phone, avatar_url").eq("id", session.user.id).maybeSingle();
@@ -282,7 +285,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: effectiveRole, actualRole, viewAs, memberVisibility: visibilityFromRow(visibilityResult.data as Record<string, unknown> | null), memberSummary, ownershipSummary: [], buildings: mappedBuildings, expenses, leasePayments, distributions, bankAccount, bankBalance, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
   }, [activeOrganizationId, session, viewAs]);
 
-  useEffect(() => { if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session]);
+  useEffect(() => { if (!sessionResolved) return; if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session, sessionResolved]);
   useEffect(() => {
     if (!session) return;
     const interval = window.setInterval(async () => {

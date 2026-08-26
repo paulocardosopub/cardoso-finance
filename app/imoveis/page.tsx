@@ -11,7 +11,7 @@ import { buildingPath } from "@/lib/building-path";
 import { buildingIsForSale, sortBuildingsForDisplay } from "@/lib/building-order";
 import { listAuthorizedDocuments } from "@/lib/member-access";
 import { buildingsMonthlyRent, unitMonthlyRent } from "@/lib/rent";
-import { currentMonthKey, monthLabel } from "@/lib/month";
+import { currentMonthKey, isRentalMonthAvailable, monthLabel } from "@/lib/month";
 
 function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda" || unit.status === "venda_alugado"); }
 function isForSale(building: Building) { return buildingIsForSale(building); }
@@ -129,7 +129,7 @@ function EmployeeProperties({ organizationId, buildings, buildingPhotos, query, 
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
-    if (!supabase || !organizationId) return;
+    if (!supabase || !organizationId || !isRentalMonthAvailable(selectedMonth)) { setPayments([]); return; }
     supabase.from("lease_payments").select("lease_id, expected_amount, received_amount, net_amount, status").eq("organization_id", organizationId).eq("competence", selectedMonth + "-01").then(({ data }) => {
       setPayments((data ?? []) as Array<{ lease_id: string; expected_amount: number; received_amount: number; net_amount: number; status: string }>);
     });
@@ -159,6 +159,7 @@ function EmployeeProperties({ organizationId, buildings, buildingPhotos, query, 
     setSelectedMonth(date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0"));
   }
   function buildingTotals(building: Building) {
+    if (!isRentalMonthAvailable(selectedMonth)) return { expected: 0, received: 0 };
     return (building.unitsData ?? []).reduce((totals, unit) => {
       if (unit.rent <= 0) return totals;
       const expected = unitMonthlyRent(unit);

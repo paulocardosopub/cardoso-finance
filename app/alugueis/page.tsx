@@ -6,7 +6,7 @@ import { usePortfolio } from "@/components/portfolio-provider";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { brl } from "@/lib/format";
 import type { LeasePaymentRecord, LeasePaymentStatus } from "@/types/domain";
-import { currentMonthKey, monthLabel, shiftMonth } from "@/lib/month";
+import { currentMonthKey, isRentalMonthAvailable, monthLabel, shiftMonth } from "@/lib/month";
 
 type Member = { member_id: string; user_id?: string | null; contact_id?: string | null; full_name: string; email: string; ownership_percentage: number; is_placeholder?: boolean };
 type LeaseRow = { leaseId: string; unitId: string; buildingId: string; buildingName: string; unitCode: string; tenant: string; rent: number; dueDay: number };
@@ -63,11 +63,12 @@ export default function AlugueisPage() {
 
   const leases = useMemo<LeaseRow[]>(() => buildings.filter((building) => building.status !== "vendido").flatMap((building) => (building.unitsData ?? []).filter((unit) => unit.lease && unit.rent > 0).map((unit) => ({ leaseId: unit.lease!.id, unitId: unit.id, buildingId: building.dbId ?? building.id, buildingName: building.name, unitCode: unit.code, tenant: unit.tenantName ?? unit.tenant ?? "Inquilino não informado", rent: unit.rent, dueDay: unit.lease!.dueDay ?? 10 }))), [buildings]);
   const leaseById = useMemo(() => new Map(leases.map((lease) => [lease.leaseId, lease])), [leases]);
-  const currentPayments = useMemo(() => leasePayments.filter((payment) => payment.competence.startsWith(selectedMonth)), [leasePayments, selectedMonth]);
+  const rentalMonthAvailable = isRentalMonthAvailable(selectedMonth);
+  const currentPayments = useMemo(() => rentalMonthAvailable ? leasePayments.filter((payment) => payment.competence.startsWith(selectedMonth)) : [], [leasePayments, rentalMonthAvailable, selectedMonth]);
   const receivedThisMonth = currentPayments.filter((payment) => payment.status === "paid" || payment.receivedAmount > 0).reduce((sum, payment) => sum + (payment.netAmount || payment.receivedAmount), 0);
   const missingPayments = leases.filter((lease) => paymentState(currentPayments.find((payment) => payment.leaseId === lease.leaseId), lease) !== "paid");
   const overduePayments = missingPayments.filter((lease) => paymentState(currentPayments.find((payment) => payment.leaseId === lease.leaseId), lease) === "overdue");
-  const visiblePayments = useMemo(() => leasePayments.filter((payment) => payment.competence.startsWith(selectedMonth)).filter((payment) => {
+  const visiblePayments = useMemo(() => rentalMonthAvailable ? leasePayments.filter((payment) => payment.competence.startsWith(selectedMonth)).filter((payment) => {
     const lease = leaseById.get(payment.leaseId);
     if (!lease) return false;
     const state = paymentState(payment, lease);
@@ -78,7 +79,7 @@ export default function AlugueisPage() {
     if (sort === "value_asc") return left.expectedAmount - right.expectedAmount;
     if (sort === "tenant_asc") return (leftLease?.tenant ?? "").localeCompare(rightLease?.tenant ?? "", "pt-BR");
     return sort === "competence_asc" ? left.competence.localeCompare(right.competence) : right.competence.localeCompare(left.competence);
-  }), [leasePayments, leaseById, query, sort, statusFilter, selectedMonth]);
+  }) : [], [leasePayments, leaseById, query, sort, statusFilter, selectedMonth, rentalMonthAvailable]);
 
   function selectLease(leaseId: string) {
     const lease = leaseById.get(leaseId);
@@ -100,6 +101,7 @@ export default function AlugueisPage() {
 
   async function generateMonthCharges() {
     if (!organizationId || role === "viewer") { setMessage("Seu perfil não pode gerar cobranças."); return; }
+    if (!isRentalMonthAvailable(selectedMonth)) { setMessage("Não há dados de aluguéis antes de agosto de 2026."); return; }
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
     const existing = new Set(currentPayments.map((payment) => payment.leaseId));
     const rows = leases.filter((lease) => !existing.has(lease.leaseId)).map((lease) => ({ organization_id: organizationId, lease_id: lease.leaseId, competence: firstDay(selectedMonth), due_date: dueDateFor(selectedMonth, lease.dueDay), expected_amount: lease.rent, received_amount: 0, status: "pending" }));
@@ -114,6 +116,7 @@ export default function AlugueisPage() {
   async function savePayment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || role === "viewer") { setMessage("Seu perfil não pode registrar aluguéis."); return; }
+    if (!isRentalMonthAvailable(paymentForm.competence.slice(0, 7))) { setMessage("Não há dados de aluguéis antes de agosto de 2026."); return; }
     const expected = Number(paymentForm.expectedAmount.replace(",", "."));
     const received = Number(paymentForm.receivedAmount.replace(",", ".") || 0);
     if (!paymentForm.leaseId || !paymentForm.competence || !Number.isFinite(expected) || expected <= 0 || !Number.isFinite(received) || received < 0) { setMessage("Informe imóvel, competência e valores válidos."); return; }
