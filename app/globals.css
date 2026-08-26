@@ -336,6 +336,13 @@ td small { display:flex; align-items:center; gap:4px; color:var(--muted); font-s
 .form-grid select[multiple] option { padding:5px 6px; }
 .form-grid-wide { grid-column:1 / -1; }
 .edit-modal .onboarding-actions { margin-top:20px; }
+.payment-confirmation-modal { width:min(100%,520px); }
+.payment-proof-field { display:grid; gap:6px; }
+.payment-proof-field > .muted { display:inline; font-size:10px; }
+.payment-proof-input { min-height:42px; display:flex; align-items:center; gap:8px; padding:9px 10px; border:1px dashed rgba(128,226,176,.35); border-radius:8px; color:var(--accent); background:rgba(128,226,176,.04); cursor:pointer; }
+.payment-proof-input input { width:100%; min-width:0; color:var(--muted); font-size:11px; }
+.payment-proof-input span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.payment-confirmation-note { display:flex; align-items:center; gap:7px; margin-top:16px; font-size:11px; line-height:1.4; }
 .upload-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px; }
 .upload-card { min-height:120px; display:grid; place-items:center; align-content:center; gap:6px; border:1px dashed rgba(128,226,176,.35); border-radius:12px; color:var(--accent); background:rgba(128,226,176,.04); text-align:center; cursor:pointer; }
 .upload-card strong { color:var(--text); font-size:12px; }
