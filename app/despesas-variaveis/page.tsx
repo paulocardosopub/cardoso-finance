@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarDays, Plus, Receipt, WalletCards } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { brl } from "@/lib/format";
 import { currentMonthKey, monthLabel, shiftMonth } from "@/lib/month";
@@ -28,7 +28,7 @@ export default function DespesasVariaveisPage() {
   const [message, setMessage] = useState("");
   const [loadingExpenses, setLoadingExpenses] = useState(false);
 
-  async function loadExpenses() {
+  const loadExpenses = useCallback(async () => {
     if (!organizationId) return;
     const supabase = createSupabaseBrowserClient();
     if (!supabase) return;
@@ -45,9 +45,9 @@ export default function DespesasVariaveisPage() {
     if (result.error) setMessage("Não foi possível carregar suas despesas variáveis.");
     else setExpenses((result.data ?? []) as VariableExpense[]);
     setLoadingExpenses(false);
-  }
+  }, [organizationId]);
 
-  useEffect(() => { void loadExpenses(); }, [organizationId]);
+  useEffect(() => { void loadExpenses(); }, [loadExpenses]);
 
   const periodExpenses = useMemo(() => expenses.filter((expense) => expense.expense_date?.startsWith(selectedMonth)), [expenses, selectedMonth]);
   const periodTotal = periodExpenses.reduce((sum, expense) => sum + Number(expense.value || 0), 0);
