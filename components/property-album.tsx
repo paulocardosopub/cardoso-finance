@@ -43,7 +43,7 @@ export function PropertyAlbum({ buildings, organizationId }: { buildings: Buildi
     });
     setItems(nextItems);
     setActiveIndex((index) => nextItems.length ? index % nextItems.length : 0);
-  }, [buildings, memberVisibility.showPhotos, organizationId, role]);
+  }, [buildings, memberVisibility, organizationId, role]);
 
   useEffect(() => {
     void loadAlbum();

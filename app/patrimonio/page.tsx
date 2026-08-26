@@ -28,7 +28,7 @@ export default function PatrimonioPage() {
     }
     void loadBuildingPhotos();
     return () => { active = false; };
-  }, [buildings, memberVisibility.showPhotos, organizationId, role]);
+  }, [buildings, memberVisibility, organizationId, role]);
   const totalValue = activeBuildings.reduce((total, building) => total + building.value, 0);
   const totalUnits = activeBuildings.reduce((total, building) => total + building.units, 0);
   const recordCount = activeBuildings.reduce((total, building) => total + (building.sourceRows ?? building.units), 0);

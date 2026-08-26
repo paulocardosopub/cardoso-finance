@@ -350,9 +350,9 @@ td small { display:flex; align-items:center; gap:4px; color:var(--muted); font-s
 .property-map .leaflet-control-zoom a { color:#182333; }
 .property-map .leaflet-popup-content { font-size:12px; line-height:1.55; }
 .property-map .leaflet-popup-content a { color:#227d5c; font-weight:600; }
-.property-map-pin { background:transparent; border:0; width:24px !important; height:30px !important; }
-.property-map-building { position:absolute; left:2px; bottom:5px; display:block; width:19px; height:23px; border:2px solid #0d1420; border-radius:3px 3px 1px 1px; background:var(--building-color); box-shadow:0 2px 8px #0008; }
-.property-map-building:before { content:""; position:absolute; inset:4px 3px; background:repeating-linear-gradient(90deg,#0d1420 0 3px,transparent 3px 6px),repeating-linear-gradient(0deg,#0d1420 0 3px,transparent 3px 6px); opacity:.76; }
+.property-map-pin { background:transparent; border:0; width:18px !important; height:22px !important; }
+.property-map-building { position:absolute; left:2px; bottom:3px; display:block; width:14px; height:18px; border:1.5px solid #0d1420; border-radius:2px 2px 1px 1px; background:var(--building-color); box-shadow:0 1px 5px #0008; }
+.property-map-building:before { content:""; position:absolute; inset:3px 2px; background:repeating-linear-gradient(90deg,#0d1420 0 2px,transparent 2px 4px),repeating-linear-gradient(0deg,#0d1420 0 2px,transparent 2px 4px); opacity:.76; }
 .map-location-form { display:flex; flex-direction:column; gap:12px; }
 .map-location-form .panel-heading { margin-bottom:4px; }
 .map-location-form label { display:flex; flex-direction:column; gap:6px; color:#91a0b9; font-size:12px; }
@@ -438,6 +438,9 @@ body { width:100%; overflow-x:hidden; -webkit-text-size-adjust:100%; }
   .property-map .leaflet-control-zoom { margin-top:10px; margin-left:10px; }
   .property-map .leaflet-control-zoom a { width:38px; height:38px; line-height:36px; font-size:24px; }
   .property-map .leaflet-control-attribution { font-size:8px; }
+  .property-map-pin { width:15px !important; height:18px !important; }
+  .property-map-building { width:12px; height:15px; border-width:1px; }
+  .property-map-building:before { inset:2px 2px; background:repeating-linear-gradient(90deg,#0d1420 0 1.5px,transparent 1.5px 3px),repeating-linear-gradient(0deg,#0d1420 0 1.5px,transparent 1.5px 3px); }
   .map-location-form .form-grid { grid-template-columns:1fr; }
   .map-attribution-note { line-height:1.45; }
   .property-album { grid-template-columns:46px minmax(0,1fr) 46px; gap:6px; }

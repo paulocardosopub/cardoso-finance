@@ -37,9 +37,9 @@ export function PropertyMap({ pins, onSelect, onMove }: { pins: PropertyMapPin[]
   useEffect(() => {
     if (!containerRef.current) return;
     const markers = markersRef.current;
-    const map = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: true }).setView([-15.7939, -47.8828], 5);
+    const map = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: true, touchZoom: true, zoomSnap: 0.5, zoomDelta: 0.5 }).setView([-15.7939, -47.8828], 5);
     mapRef.current = map;
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>' }).addTo(map);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>', maxZoom: 19, detectRetina: true, updateWhenIdle: true, keepBuffer: 2 }).addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
     const markInteraction = () => { if (fittedRef.current) userInteractedRef.current = true; };
     map.on("dragstart zoomstart", markInteraction);
@@ -55,7 +55,7 @@ export function PropertyMap({ pins, onSelect, onMove }: { pins: PropertyMapPin[]
       if (!nextIds.has(id)) { layer.removeLayer(marker); markersRef.current.delete(id); }
     });
     pins.forEach((pin) => {
-      const icon = L.divIcon({ className: "property-map-pin", html: `<span class="property-map-building" style="--building-color:${pinColor(pin.tone)}"></span>`, iconSize: [24, 30], iconAnchor: [12, 30], popupAnchor: [0, -28] });
+      const icon = L.divIcon({ className: "property-map-pin", html: `<span class="property-map-building" style="--building-color:${pinColor(pin.tone)}"></span>`, iconSize: [18, 22], iconAnchor: [9, 22], popupAnchor: [0, -20] });
       const popup = `<strong>${escapeHtml(pin.name)}</strong><br/><span>${escapeHtml(pin.city || pin.address || "Localização cadastrada")}</span><br/><a href="${pin.googleMapsUrl}" target="_blank" rel="noreferrer">Abrir no Google Maps</a>`;
       const existing = markersRef.current.get(pin.id);
       if (existing) {

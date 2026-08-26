@@ -34,7 +34,7 @@ export default function DocumentosPage() {
     const withLinks = await Promise.all(rows.map(async (document) => ({ ...document, signedUrl: (await supabase.storage.from("organization-documents").createSignedUrl(document.storage_path, 3600, { download: document.name })).data?.signedUrl })));
     setDocuments(withLinks);
     setLoading(false);
-  }, [isMember, memberVisibility.showDocuments, organizationId, role]);
+  }, [isMember, memberVisibility, organizationId, role]);
 
   useEffect(() => { void loadDocuments(); }, [loadDocuments]);
 

@@ -45,7 +45,7 @@ export default function ImoveisPage() {
     }
     void loadBuildingPhotos();
     return () => { active = false; };
-  }, [buildings, memberVisibility.showPhotos, organizationId, role]);
+  }, [buildings, memberVisibility, organizationId, role]);
   const visible = useMemo(() => buildings.filter((building) => {
     if (filter === "vendidos") return building.status === "vendido";
     if (building.status === "vendido") return false;

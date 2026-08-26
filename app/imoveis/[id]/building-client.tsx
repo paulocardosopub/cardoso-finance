@@ -61,7 +61,7 @@ export default function BuildingDetailClient() {
     }
     void loadPrimaryPhotos();
     return () => { active = false; };
-  }, [building?.unitsData, memberVisibility.showPhotos, organizationId, role]);
+  }, [building?.unitsData, memberVisibility, organizationId, role]);
 
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando unidade...</p></div></div>;
   if (!building || !organizationId) return <div className="content"><div className="empty-state"><h3>Imóvel não encontrado</h3><Link href="/imoveis" className="button button-primary">Voltar</Link></div></div>;

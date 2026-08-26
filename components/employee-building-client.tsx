@@ -8,6 +8,7 @@ import { usePortfolio } from "@/components/portfolio-provider";
 import { brl } from "@/lib/format";
 import { currentMonthKey, monthLabel, shiftMonth } from "@/lib/month";
 import { listAuthorizedDocuments, type AuthorizedDocument } from "@/lib/member-access";
+import { captureDeviceLocation } from "@/lib/geolocation";
 import type { Building, PropertyUnit, UnitStatus } from "@/types/domain";
 
 const labels: Record<string, string> = { alugado: "Alugado", vago: "Vago", venda: "À venda", venda_alugado: "À venda e alugado", manutencao: "Manutenção", servico: "Serviço", negociacao: "Negociação" };
@@ -120,13 +121,13 @@ export function EmployeeBuildingClient({ building }: { building: Building }) {
     if (!organizationId || !building.dbId) return;
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
     setBusy(true); setMessage("");
-    const position = await new Promise<GeolocationPosition | null>((resolve) => navigator.geolocation?.getCurrentPosition(resolve, () => resolve(null), { enableHighAccuracy: true, timeout: 7000 }) ?? resolve(null));
-    const result = await supabase.rpc("record_property_visit", { target_org: organizationId, target_building: building.dbId, target_unit: unit?.id ?? null, visit_latitude: position?.coords.latitude ?? null, visit_longitude: position?.coords.longitude ?? null, visit_notes: unit ? `Visita registrada na unidade ${unit.code}` : "Visita registrada no imóvel" });
+    const location = await captureDeviceLocation();
+    const result = await supabase.rpc("record_property_visit", { target_org: organizationId, target_building: building.dbId, target_unit: unit?.id ?? null, visit_latitude: location?.latitude ?? null, visit_longitude: location?.longitude ?? null, visit_notes: unit ? `Visita registrada na unidade ${unit.code}` : "Visita registrada no imóvel" });
     if (result.error) setMessage("Não foi possível registrar a visita.");
     else {
       const key = unit?.id ?? "__building__";
       setVisitTimes((current) => ({ ...current, [key]: new Date().toISOString() }));
-      setMessage(`Visita registrada${unit ? ` · ${unit.code}` : ""}. O status ficará verde por 24 horas.`);
+      setMessage(`Visita registrada${unit ? ` · ${unit.code}` : ""}${location ? " com localização." : ". Localização não disponível neste dispositivo."} O status ficará verde por 24 horas.`);
     }
     setBusy(false);
   }

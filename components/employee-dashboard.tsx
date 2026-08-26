@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { buildingPath } from "@/lib/building-path";
 import { brl } from "@/lib/format";
 import { currentMonthKey, monthLabel, shiftMonth } from "@/lib/month";
+import { captureDeviceLocation } from "@/lib/geolocation";
 import type { Building, PropertyUnit } from "@/types/domain";
 
 function isRented(unit: PropertyUnit) { return unit.status === "alugado" || unit.status === "venda_alugado" || Boolean(unit.lease); }
@@ -46,9 +47,9 @@ export function EmployeeDashboard({ buildings, organizationId, userName, refresh
     if (!building.dbId) return;
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
     setBusy(`visit:${building.id}`); setMessage("");
-    const position = await new Promise<GeolocationPosition | null>((resolve) => navigator.geolocation?.getCurrentPosition(resolve, () => resolve(null), { enableHighAccuracy: true, timeout: 7000 }) ?? resolve(null));
-    const result = await supabase.rpc("record_property_visit", { target_org: organizationId, target_building: building.dbId, target_unit: null, visit_latitude: position?.coords.latitude ?? null, visit_longitude: position?.coords.longitude ?? null, visit_notes: "Visita registrada no painel operacional" });
-    setMessage(result.error ? "Não foi possível registrar a visita." : `Visita de ${building.name} registrada com data, hora e localização.`);
+    const location = await captureDeviceLocation();
+    const result = await supabase.rpc("record_property_visit", { target_org: organizationId, target_building: building.dbId, target_unit: null, visit_latitude: location?.latitude ?? null, visit_longitude: location?.longitude ?? null, visit_notes: "Visita registrada no painel operacional" });
+    setMessage(result.error ? "Não foi possível registrar a visita." : `Visita de ${building.name} registrada${location ? " com data, hora e localização." : ". Localização não disponível neste dispositivo."}`);
     if (!result.error) {
       const visits = await supabase.from("property_visits").select("id, building_id, unit_id, visited_at, latitude, longitude").eq("organization_id", organizationId).order("visited_at", { ascending: false }).limit(6);
       setRecentVisits((visits.data ?? []) as typeof recentVisits);
