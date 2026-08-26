@@ -31,11 +31,14 @@ const memberNav = [
   { href: "/creditos", label: "Créditos", icon: ArrowUpRight },
   { href: "/mapa", label: "Mapas", icon: MapPinned },
   { href: "/documentos", label: "Documentos", icon: FileText },
+  { href: "/configuracoes", label: "Configurações", icon: Settings2 },
 ];
 const employeeNav = [
   { href: "/", label: "Painel operacional", icon: LayoutDashboard },
   { href: "/imoveis", label: "Imóveis", icon: Building2 },
   { href: "/mapa", label: "Mapa e visitas", icon: MapPinned },
+  { href: "/despesas-variaveis", label: "Despesas variáveis", icon: Receipt },
+  { href: "/configuracoes", label: "Configurações", icon: Settings2 },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

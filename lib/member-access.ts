@@ -23,12 +23,12 @@ export const roleLabels: Record<MemberRole, string> = {
 
 export function memberRouteAllowed(pathname: string) {
   const route = pathname.replace(/\/+$/, "") || "/";
-  return route === "/" || route === "/imoveis" || route.startsWith("/imoveis/") || route === "/patrimonio" || route === "/despesas" || route === "/creditos" || route === "/mapa" || route === "/documentos";
+  return route === "/" || route === "/imoveis" || route.startsWith("/imoveis/") || route === "/patrimonio" || route === "/despesas" || route === "/creditos" || route === "/mapa" || route === "/documentos" || route === "/configuracoes";
 }
 
 export function employeeRouteAllowed(pathname: string) {
   const route = pathname.replace(/\/+$/, "") || "/";
-  return route === "/" || route === "/imoveis" || route.startsWith("/imoveis/") || route === "/mapa";
+  return route === "/" || route === "/imoveis" || route.startsWith("/imoveis/") || route === "/mapa" || route === "/despesas-variaveis" || route === "/configuracoes";
 }
 
 export type AuthorizedDocument = {

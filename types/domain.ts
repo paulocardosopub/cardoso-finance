@@ -37,6 +37,7 @@ export type ExpenseRecord = {
   responsible_user_id?: string;
   responsible_contact_id?: string;
   building_id?: string;
+  created_role?: "employee" | "management" | string;
   responsibilities?: Array<{ user_id?: string; contact_id?: string; share_percentage: number }>;
 };
 
