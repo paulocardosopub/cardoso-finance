@@ -72,7 +72,7 @@ begin
   if credit_row.source_payment_id is not null then
     if target_competence is not null and date_trunc('month', target_competence)::date <> credit_row.competence then raise exception 'automatic_credit_competence_locked'; end if;
     update public.revenues set value = round(target_value, 2), description = left(trim(target_description), 240), updated_at = timezone('utc', now()) where id = credit_row.id;
-    update public.lease_payments set received_amount = round(target_value, 2), expected_amount = greatest(expected_amount, round(target_value, 2)), updated_at = timezone('utc', now()) where id = credit_row.source_payment_id;
+    update public.lease_payments set received_amount = round(target_value, 2), expected_amount = round(target_value, 2), updated_at = timezone('utc', now()) where id = credit_row.source_payment_id;
     update public.financial_history set amount = round(target_value, 2), description = left(trim(target_description), 240) where source_payment_id = credit_row.source_payment_id and event_type = 'credit';
   elsif credit_row.source_sale_id is not null then
     update public.revenues set value = round(target_value, 2), description = left(trim(target_description), 240), updated_at = timezone('utc', now()) where id = credit_row.id;
