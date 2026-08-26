@@ -96,6 +96,13 @@ h3 { font-size:14px; }
 .metric-foot { font-size:11px; color:var(--muted); }
 .positive { color:var(--accent); }
 .negative { color:var(--danger); }
+.building-row.near-sale-row { border-color:rgba(240,190,74,.75); box-shadow:inset 3px 0 0 #f0be4a; }
+.building-row.attention-row { border-color:rgba(18,18,18,.95); box-shadow:inset 3px 0 0 #050505; }
+.building-value small.negative { color:var(--danger); }
+.near-sale-tag { color:#f0be4a; border-color:rgba(240,190,74,.55); background:rgba(240,190,74,.08); }
+.attention-tag { color:#f3f3f3; border-color:#111; background:#0a0a0a; }
+.checkbox-field { display:flex !important; align-items:center; gap:8px; color:var(--text) !important; }
+.checkbox-field input { width:16px !important; min-height:16px !important; accent-color:var(--accent); }
 .dashboard-grid { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr); gap:18px; }
 .dashboard-grid > .property-album-panel { grid-column:1 / -1; }
 .property-album-panel .panel-heading h2 { display:flex; align-items:center; gap:8px; }

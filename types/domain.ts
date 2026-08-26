@@ -109,6 +109,9 @@ export type Building = {
   revenue: number;
   expenses: number;
   status: "ativo" | "reforma" | "venda" | "vendido" | "inativo";
+  saleProximity?: boolean;
+  attention?: boolean;
+  attentionNote?: string;
   image: string;
   address?: string;
   postalCode?: string;
