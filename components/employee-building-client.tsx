@@ -9,6 +9,7 @@ import { brl } from "@/lib/format";
 import { currentMonthKey, monthLabel, shiftMonth } from "@/lib/month";
 import { listAuthorizedDocuments, type AuthorizedDocument } from "@/lib/member-access";
 import { captureDeviceLocation } from "@/lib/geolocation";
+import { formatVisitAddress, reverseGeocodeLocation } from "@/lib/reverse-geocode";
 import type { Building, PropertyUnit, UnitStatus } from "@/types/domain";
 
 const labels: Record<string, string> = { alugado: "Alugado", vago: "Vago", venda: "À venda", venda_alugado: "À venda e alugado", manutencao: "Manutenção", servico: "Serviço", negociacao: "Negociação" };
@@ -122,12 +123,14 @@ export function EmployeeBuildingClient({ building }: { building: Building }) {
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
     setBusy(true); setMessage("");
     const location = await captureDeviceLocation();
-    const result = await supabase.rpc("record_property_visit", { target_org: organizationId, target_building: building.dbId, target_unit: unit?.id ?? null, visit_latitude: location?.latitude ?? null, visit_longitude: location?.longitude ?? null, visit_notes: unit ? `Visita registrada na unidade ${unit.code}` : "Visita registrada no imóvel" });
+    const address = location ? await reverseGeocodeLocation(location) : null;
+    const result = await supabase.rpc("record_property_visit", { target_org: organizationId, target_building: building.dbId, target_unit: unit?.id ?? null, visit_latitude: location?.latitude ?? null, visit_longitude: location?.longitude ?? null, visit_street: address?.street ?? null, visit_neighborhood: address?.neighborhood ?? null, visit_postal_code: address?.postalCode ?? null, visit_notes: unit ? `Visita registrada na unidade ${unit.code}` : "Visita registrada no imóvel" });
     if (result.error) setMessage("Não foi possível registrar a visita.");
     else {
       const key = unit?.id ?? "__building__";
       setVisitTimes((current) => ({ ...current, [key]: new Date().toISOString() }));
-      setMessage(`Visita registrada${unit ? ` · ${unit.code}` : ""}${location ? " com localização." : ". Localização não disponível neste dispositivo."} O status ficará verde por 24 horas.`);
+      const addressLabel = address ? formatVisitAddress(address) : "";
+      setMessage(`Visita registrada${unit ? ` · ${unit.code}` : ""}${addressLabel ? ` · ${addressLabel}.` : location ? " com localização; endereço não identificado." : ". Localização não disponível neste dispositivo."} O status ficará verde por 24 horas.`);
     }
     setBusy(false);
   }

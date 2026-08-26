@@ -9,7 +9,7 @@ import { buildingIsForSale } from "@/lib/building-order";
 import type { Building } from "@/types/domain";
 
 type LocationForm = { address: string; city: string; state: string; postalCode: string; latitude: string; longitude: string };
-type VisitRow = { id: string; building_id: string; unit_id?: string | null; visited_at: string; latitude?: number | null; longitude?: number | null; notes?: string | null };
+type VisitRow = { id: string; building_id: string; unit_id?: string | null; visited_at: string; latitude?: number | null; longitude?: number | null; street?: string | null; neighborhood?: string | null; postal_code?: string | null; notes?: string | null };
 const emptyLocation: LocationForm = { address: "", city: "", state: "", postalCode: "", latitude: "", longitude: "" };
 
 function formFromBuilding(building: { address?: string; city: string; state: string; postalCode?: string; latitude?: number; longitude?: number }): LocationForm {
@@ -21,7 +21,7 @@ function mapsUrl(latitude: number, longitude: number) {
 }
 
 function VisitHistory({ visits, buildings, canClear, onClear }: { visits: VisitRow[]; buildings: Building[]; canClear: boolean; onClear?: () => void }) {
-  return <section className="panel section-gap"><div className="panel-heading"><div><h2>Histórico de visitas</h2><p>{visits.length ? `${visits.length} visita(s) registrada(s)` : "Nenhuma visita registrada ainda."}</p></div>{canClear && visits.length > 0 && <button type="button" className="button button-ghost danger-button button-small" onClick={onClear}><Trash2 size={13} /> Limpar histórico</button>}</div>{visits.length ? <div className="visit-history-list">{visits.map((visit) => { const building = buildings.find((item) => item.dbId === visit.building_id); const unit = building?.unitsData?.find((item) => item.id === visit.unit_id); return <div className="visit-history-row" key={visit.id}><Clock3 size={15} /><div><strong>{building?.name ?? "Imóvel"}{unit ? ` · ${unit.code}` : ""}</strong><small>{new Date(visit.visited_at).toLocaleString("pt-BR")} · {visit.latitude != null && visit.longitude != null ? `${Number(visit.latitude).toFixed(5)}, ${Number(visit.longitude).toFixed(5)}` : "localização não disponível"}</small></div>{visit.latitude != null && visit.longitude != null && <a className="icon-btn" href={mapsUrl(Number(visit.latitude), Number(visit.longitude))} target="_blank" rel="noreferrer" aria-label="Abrir localização da visita"><ExternalLink size={13} /></a>}</div>; })}</div> : <div className="empty-state" style={{ minHeight: 100 }}><Clock3 size={24} /><p>As visitas marcadas pela funcionária aparecerão aqui.</p></div>}</section>;
+  return <section className="panel section-gap"><div className="panel-heading"><div><h2>Histórico de visitas</h2><p>{visits.length ? `${visits.length} visita(s) registrada(s)` : "Nenhuma visita registrada ainda."}</p></div>{canClear && visits.length > 0 && <button type="button" className="button button-ghost danger-button button-small" onClick={onClear}><Trash2 size={13} /> Limpar histórico</button>}</div>{visits.length ? <div className="visit-history-list">{visits.map((visit) => { const building = buildings.find((item) => item.dbId === visit.building_id); const unit = building?.unitsData?.find((item) => item.id === visit.unit_id); const address = [visit.street, visit.neighborhood, visit.postal_code ? `CEP ${visit.postal_code}` : null].filter(Boolean).join(" · "); return <div className="visit-history-row" key={visit.id}><Clock3 size={15} /><div><strong>{building?.name ?? "Imóvel"}{unit ? ` · ${unit.code}` : ""}</strong><small>{new Date(visit.visited_at).toLocaleString("pt-BR")} · {address || (visit.latitude != null && visit.longitude != null ? "Endereço não identificado" : "localização não disponível")}</small></div>{visit.latitude != null && visit.longitude != null && <a className="icon-btn" href={mapsUrl(Number(visit.latitude), Number(visit.longitude))} target="_blank" rel="noreferrer" aria-label="Abrir localização da visita" title="Abrir no mapa"><ExternalLink size={13} /></a>}</div>; })}</div> : <div className="empty-state" style={{ minHeight: 100 }}><Clock3 size={24} /><p>As visitas marcadas pela funcionária aparecerão aqui.</p></div>}</section>;
 }
 
 function pinTone(building: Pick<Building, "status" | "unitsData" | "revenue" | "occupied">): PropertyMapPin["tone"] {
@@ -146,7 +146,7 @@ export default function MapaPage() {
   const loadVisits = useCallback(async () => {
     if (!organizationId || role === "viewer") return;
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
-    const result = await supabase.from("property_visits").select("id, building_id, unit_id, visited_at, latitude, longitude, notes").eq("organization_id", organizationId).order("visited_at", { ascending: false }).limit(200);
+    const result = await supabase.from("property_visits").select("id, building_id, unit_id, visited_at, latitude, longitude, street, neighborhood, postal_code, notes").eq("organization_id", organizationId).order("visited_at", { ascending: false }).limit(200);
     if (!result.error) setVisits((result.data ?? []) as VisitRow[]);
   }, [organizationId, role]);
   async function clearVisits() {
