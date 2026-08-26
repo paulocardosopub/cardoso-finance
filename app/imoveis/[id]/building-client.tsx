@@ -54,7 +54,7 @@ export default function BuildingDetailClient() {
       const supabase = createSupabaseBrowserClient();
       if (!supabase) return;
       if (role === "viewer" && !memberVisibility.showPhotos) { if (active) setPrimaryPhotos({}); return; }
-      const result = await listAuthorizedDocuments(supabase, organizationId, role);
+      const result = await listAuthorizedDocuments(supabase, organizationId, role, memberVisibility);
       if (result.error) return;
       const entries = await Promise.all((result.data ?? []).filter((row) => row.category === "photo" && row.is_primary && row.unit_id && unitIds.includes(String(row.unit_id))).map(async (row) => ({ unitId: String(row.unit_id), url: (await supabase.storage.from("organization-documents").createSignedUrl(String(row.storage_path), 3600)).data?.signedUrl })));
       if (active) setPrimaryPhotos(Object.fromEntries(entries.filter((entry): entry is { unitId: string; url: string } => Boolean(entry.url)).map((entry) => [entry.unitId, entry.url])));
@@ -122,7 +122,7 @@ export default function BuildingDetailClient() {
     setFilesUnit(unit);
     setFileLoading(true);
     setMessage("");
-    const result = await listAuthorizedDocuments(supabase, organizationId, role);
+    const result = await listAuthorizedDocuments(supabase, organizationId, role, memberVisibility);
     if (result.error) setMessage(result.error.message);
     else {
       const rows = (result.data ?? []).filter((document) => String(document.unit_id) === unit.id) as DocumentRow[];
@@ -137,7 +137,7 @@ export default function BuildingDetailClient() {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !organizationId || !unitIds.length) return;
     if (role === "viewer" && !memberVisibility.showPhotos) { setPrimaryPhotos({}); return; }
-    const result = await listAuthorizedDocuments(supabase, organizationId, role);
+    const result = await listAuthorizedDocuments(supabase, organizationId, role, memberVisibility);
     if (result.error) return;
     const entries = await Promise.all((result.data ?? []).filter((row) => row.category === "photo" && row.is_primary && row.unit_id && unitIds.includes(String(row.unit_id))).map(async (row) => ({ unitId: String(row.unit_id), url: (await supabase.storage.from("organization-documents").createSignedUrl(String(row.storage_path), 3600)).data?.signedUrl })));
     setPrimaryPhotos(Object.fromEntries(entries.filter((entry): entry is { unitId: string; url: string } => Boolean(entry.url)).map((entry) => [entry.unitId, entry.url])));

@@ -25,7 +25,7 @@ export function PropertyAlbum({ buildings, organizationId }: { buildings: Buildi
       setItems([]);
       return;
     }
-    const result = await listAuthorizedDocuments(supabase, organizationId, role);
+    const result = await listAuthorizedDocuments(supabase, organizationId, role, memberVisibility);
     if (result.error) return;
     const grouped = new Map<string, StoredPhoto[]>();
     for (const row of (result.data ?? []).filter((document) => document.category === "photo" && document.unit_id && unitIds.includes(String(document.unit_id)))) {

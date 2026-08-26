@@ -28,7 +28,7 @@ export default function DocumentosPage() {
     const supabase = createSupabaseBrowserClient();
     if (!supabase) { setLoading(false); return; }
     setLoading(true);
-    const result = await listAuthorizedDocuments(supabase, organizationId, role);
+    const result = await listAuthorizedDocuments(supabase, organizationId, role, memberVisibility);
     if (result.error) { setMessage("Não foi possível carregar os documentos disponíveis."); setDocuments([]); setLoading(false); return; }
     const rows = (result.data ?? []).filter((document) => document.category !== "photo");
     const withLinks = await Promise.all(rows.map(async (document) => ({ ...document, signedUrl: (await supabase.storage.from("organization-documents").createSignedUrl(document.storage_path, 3600, { download: document.name })).data?.signedUrl })));

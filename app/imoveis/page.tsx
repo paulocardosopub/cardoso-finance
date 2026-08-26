@@ -37,7 +37,7 @@ export default function ImoveisPage() {
         if (active) setBuildingPhotos({});
         return;
       }
-      const result = await listAuthorizedDocuments(supabase, organizationId, role);
+      const result = await listAuthorizedDocuments(supabase, organizationId, role, memberVisibility);
       if (result.error) return;
       const candidates = await Promise.all((result.data ?? []).filter((row) => row.category === "photo" && row.unit_id && unitMap.has(String(row.unit_id))).map(async (row) => ({ buildingId: unitMap.get(String(row.unit_id)), isPrimary: Boolean(row.is_primary), createdAt: String(row.created_at ?? ""), url: (await supabase.storage.from("organization-documents").createSignedUrl(String(row.storage_path), 3600)).data?.signedUrl })));
       const next = Object.fromEntries(candidates.filter((item): item is { buildingId: string; isPrimary: boolean; createdAt: string; url: string } => Boolean(item.buildingId && item.url)).sort((left, right) => Number(right.isPrimary) - Number(left.isPrimary) || right.createdAt.localeCompare(left.createdAt)).reduce<[string, string][]>((entries, item) => { if (!entries.some(([buildingId]) => buildingId === item.buildingId)) entries.push([item.buildingId, item.url]); return entries; }, []));

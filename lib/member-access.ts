@@ -45,10 +45,23 @@ export type AuthorizedDocument = {
   created_at?: string | null;
 };
 
-export async function listAuthorizedDocuments(supabase: SupabaseClient, organizationId: string, role: MemberRole) {
+export async function listAuthorizedDocuments(supabase: SupabaseClient, organizationId: string, role: MemberRole, visibility: MemberVisibility = defaultMemberVisibility) {
   if (role === "viewer") {
     const result = await supabase.rpc("list_member_documents", { target_org: organizationId });
-    return { data: (result.data ?? []) as AuthorizedDocument[], error: result.error };
+    if (!result.error) return { data: (result.data ?? []) as AuthorizedDocument[], error: null };
+    // A manager/admin previewing the member screen has an effective viewer
+    // role in the UI, while the database membership is still managerial.
+    // Fall back to the RLS-protected table query for that case.
+    const fallback = await supabase
+      .from("documents")
+      .select("id, asset_id, building_id, unit_id, name, category, storage_path, mime_type, size_bytes, is_primary, created_at")
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: false });
+    if (!fallback.error) {
+      const rows = (fallback.data ?? []) as AuthorizedDocument[];
+      return { data: rows.filter((row) => row.category === "photo" ? visibility.showPhotos : visibility.showDocuments), error: null };
+    }
+    return { data: [], error: result.error };
   }
   if (role === "employee") {
     const result = await supabase.rpc("list_employee_documents", { target_org: organizationId });
