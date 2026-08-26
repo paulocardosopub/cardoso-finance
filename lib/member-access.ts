@@ -52,7 +52,23 @@ export async function listAuthorizedDocuments(supabase: SupabaseClient, organiza
   }
   if (role === "employee") {
     const result = await supabase.rpc("list_employee_documents", { target_org: organizationId });
-    return { data: (result.data ?? []) as AuthorizedDocument[], error: result.error };
+    if (!result.error) return { data: (result.data ?? []) as AuthorizedDocument[], error: null };
+    // Keep the employee view resilient when an older database has not yet
+    // created the helper function: the table policy still limits access to
+    // operational members of this organization.
+    const fallback = await supabase
+      .from("documents")
+      .select("id, asset_id, building_id, unit_id, name, category, storage_path, mime_type, size_bytes, is_primary, created_at")
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: false });
+    if (!fallback.error) return { data: (fallback.data ?? []) as AuthorizedDocument[], error: null };
+    // Older installations may not have the primary-photo column yet.
+    const legacy = await supabase
+      .from("documents")
+      .select("id, asset_id, building_id, unit_id, name, category, storage_path, mime_type, size_bytes, created_at")
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: false });
+    return { data: (legacy.data ?? []) as AuthorizedDocument[], error: legacy.error };
   }
   const result = await supabase
     .from("documents")

@@ -1,7 +1,7 @@
 "use client";
 
 import { Building2, CheckCircle2, Eye, MailPlus, Plus, Save, ShieldCheck, Trash2, UserRoundPlus, Users, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { syncInitialPortfolio } from "@/lib/portfolio-sync";
@@ -51,7 +51,7 @@ export default function OrganizationPage() {
 
   useEffect(() => { setVisibility(memberVisibility); }, [memberVisibility]);
 
-  async function loadMembers() {
+  const loadMembers = useCallback(async () => {
     if (!organizationId) return;
     const supabase = createSupabaseBrowserClient();
     if (!supabase) return;
@@ -64,11 +64,11 @@ export default function OrganizationPage() {
       setMembers((result.data ?? []) as Member[]);
     }
     setMembersLoading(false);
-  }
+  }, [organizationId]);
 
   useEffect(() => {
     void loadMembers();
-  }, [organizationId]);
+  }, [loadMembers]);
 
   async function updateMemberRole(member: Member, newRole: MemberRole) {
     if (!organizationId || role === "viewer" || member.role === newRole) return;

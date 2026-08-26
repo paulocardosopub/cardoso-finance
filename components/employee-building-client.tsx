@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, FileUp, Image as ImageIcon, MapPin, Paperclip, Save, Star, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { brl } from "@/lib/format";
 import { currentMonthKey, monthLabel, shiftMonth } from "@/lib/month";
+import { listAuthorizedDocuments, type AuthorizedDocument } from "@/lib/member-access";
 import type { Building, PropertyUnit, UnitStatus } from "@/types/domain";
 
 const labels: Record<string, string> = { alugado: "Alugado", vago: "Vago", venda: "À venda", venda_alugado: "À venda e alugado", manutencao: "Manutenção", servico: "Serviço", negociacao: "Negociação" };
@@ -54,12 +55,12 @@ export function EmployeeBuildingClient({ building }: { building: Building }) {
     return () => window.clearInterval(timer);
   }, []);
 
-  async function loadDocuments(unitId?: string) {
+  const loadDocuments = useCallback(async (unitId?: string) => {
     if (!organizationId) return;
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
-    const result = await supabase.rpc("list_employee_documents", { target_org: organizationId });
+    const result = await listAuthorizedDocuments(supabase, organizationId, "employee");
     if (result.error) { setMessage("Não foi possível carregar os arquivos."); return; }
-    const rows = (result.data ?? []) as DocumentRow[];
+    const rows = (result.data ?? []) as Array<DocumentRow & AuthorizedDocument>;
     const selected = unitId ? rows.filter((row) => String((row as DocumentRow & { unit_id?: string }).unit_id) === unitId) : rows;
     const withLinks = await Promise.all(selected.map(async (row) => ({ ...row, signedUrl: (await supabase.storage.from("organization-documents").createSignedUrl(row.storage_path, 3600)).data?.signedUrl })));
     setDocuments(withLinks);
@@ -67,8 +68,8 @@ export function EmployeeBuildingClient({ building }: { building: Building }) {
       const entries = await Promise.all(rows.filter((row) => row.category === "photo" && row.is_primary).map(async (row) => ({ unitId: String((row as DocumentRow & { unit_id?: string }).unit_id), url: (await supabase.storage.from("organization-documents").createSignedUrl(row.storage_path, 3600)).data?.signedUrl })));
       setPrimaryPhotos(Object.fromEntries(entries.filter((entry) => entry.unitId && entry.url).map((entry) => [entry.unitId, entry.url as string])));
     }
-  }
-  useEffect(() => { void loadDocuments(); }, [organizationId, building.id]);
+  }, [organizationId]);
+  useEffect(() => { void loadDocuments(); }, [loadDocuments, building.id]);
 
   const units = (building.unitsData ?? []).filter((unit) => `${unit.code} ${unit.type} ${unit.tenantName ?? ""}`.toLowerCase().includes(query.toLowerCase()));
   const occupied = (building.unitsData ?? []).filter((unit) => unit.status === "alugado" || unit.status === "venda_alugado" || unit.lease).length;

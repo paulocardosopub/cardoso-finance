@@ -143,12 +143,12 @@ export default function MapaPage() {
     setMessage("Pin reposicionado. Clique em Salvar pin para gravar a nova localização.");
   }, []);
 
-  async function loadVisits() {
+  const loadVisits = useCallback(async () => {
     if (!organizationId || role === "viewer") return;
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
     const result = await supabase.from("property_visits").select("id, building_id, unit_id, visited_at, latitude, longitude, notes").eq("organization_id", organizationId).order("visited_at", { ascending: false }).limit(200);
     if (!result.error) setVisits((result.data ?? []) as VisitRow[]);
-  }
+  }, [organizationId, role]);
   async function clearVisits() {
     if (!organizationId || role === "viewer" || !window.confirm("Limpar todo o histórico de visitas desta holding?")) return;
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
@@ -158,7 +158,7 @@ export default function MapaPage() {
     if (!result.error) setVisits([]);
     setBusy(false);
   }
-  useEffect(() => { void loadVisits(); }, [organizationId, role]);
+  useEffect(() => { void loadVisits(); }, [loadVisits]);
 
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando mapa...</p></div></div>;
   if (!organizationId) return <div className="content"><div className="empty-state"><h3>Nenhuma organização selecionada</h3><p>Entre em uma holding para visualizar os imóveis no mapa.</p></div></div>;
