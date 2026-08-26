@@ -94,6 +94,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!isPublic && !loading && organizationId && role === "employee" && !employeeRouteAllowed(pathname)) router.replace("/");
   }, [isPublic, loading, organizationId, pathname, role, router]);
   if (isPublic) return <>{children}</>;
+  // Never render the previous role's navigation or data while the session,
+  // holding, or view-as mode is being resolved. This prevents a management
+  // menu from flashing during refresh for members and employees.
+  if (loading) return <main className="auth-page" aria-busy="true"><div className="empty-state"><p>Carregando sua área segura…</p></div></main>;
   if (!loading && organizationId && ((role === "viewer" && !memberRouteAllowed(pathname)) || (role === "employee" && !employeeRouteAllowed(pathname)))) return <main className="auth-page" aria-busy="true" />;
 
   async function signOut() {
