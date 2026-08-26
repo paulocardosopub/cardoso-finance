@@ -23,7 +23,7 @@ export const roleLabels: Record<MemberRole, string> = {
 
 export function memberRouteAllowed(pathname: string) {
   const route = pathname.replace(/\/+$/, "") || "/";
-  return route === "/" || route === "/imoveis" || route.startsWith("/imoveis/") || route === "/patrimonio" || route === "/despesas" || route === "/mapa" || route === "/documentos";
+  return route === "/" || route === "/imoveis" || route.startsWith("/imoveis/") || route === "/patrimonio" || route === "/despesas" || route === "/creditos" || route === "/mapa" || route === "/documentos";
 }
 
 export function employeeRouteAllowed(pathname: string) {
