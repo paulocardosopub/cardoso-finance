@@ -12,6 +12,7 @@ import { buildingIsForSale, sortBuildingsForDisplay } from "@/lib/building-order
 import { useEffect, useState } from "react";
 import { PropertyMap, type PropertyMapPin } from "@/components/property-map";
 import { EmployeeDashboard } from "@/components/employee-dashboard";
+import { monthLabel, currentMonthKey } from "@/lib/month";
 
 function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda" || unit.status === "venda_alugado"); }
 function isForSale(building: Building) { return buildingIsForSale(building); }
@@ -52,7 +53,7 @@ export default function DashboardPage() {
   if (role === "employee") return <EmployeeDashboard buildings={buildings} organizationId={organizationId} userName={userName} refresh={refresh} />;
   if (role === "viewer") return <MemberDashboard buildings={activeBuildings} organizationId={organizationId} userName={userName} visibility={memberVisibility} summary={memberSummary} ownership={ownershipSummary} />;
   return <div className="content">
-    <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Carteira sincronizada</div><h1>{welcomeMessages[welcomeIndex].replace("{name}", userName)}</h1><p className="subtitle">Dados reais da sua organização, com patrimônio baseado exclusivamente em AVALIAÇÃO.</p></div><Link href="/imoveis" className="button button-primary"><Plus size={15} /><span>Gerenciar imóveis</span></Link></div>
+    <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Carteira sincronizada</div><h1>{welcomeMessages[welcomeIndex].replace("{name}", userName)}</h1><p className="subtitle">Dados reais da sua organização, com patrimônio baseado exclusivamente em AVALIAÇÃO. Mês de referência: {monthLabel(currentMonthKey())}.</p></div><Link href="/imoveis" className="button button-primary"><Plus size={15} /><span>Gerenciar imóveis</span></Link></div>
     <section className="metrics"><Metric icon={<CircleDollarSign size={15} />} label="Patrimônio imobiliário" value={compactBrl(totalValue)} foot={`${buildings.length} prédios organizados`} positive /><Metric icon={<ArrowUpRight size={15} />} label="Aluguéis mensais" value={brl(totalRevenue)} foot="Somente aluguéis informados" positive /><Metric icon={<Receipt size={15} />} label="Despesas mensais" value={brl(monthlyExpenses)} foot={`Saldo após despesas: ${brl(monthlyProfit)}`} /><Metric icon={<Landmark size={15} />} label="Ocupação" value={`${occupancy}%`} foot={`${occupied} de ${units} unidades`} positive /><Metric icon={<WalletCards size={15} />} label="Saldo bancário" value={brl(bankBalance)} foot="Após aluguéis, despesas e transferências" positive={bankBalance >= 0} /></section>
     <section className="dashboard-grid">
       <div className="panel"><div className="panel-heading"><div><h2>Patrimônio por grupo</h2><p>Valores atuais gravados no banco</p></div><button className="icon-btn" aria-label="Mais opções"><MoreHorizontal size={17} /></button></div><div className="legend"><span><i /> Avaliação</span></div><WealthChart buildings={activeBuildings} /></div>
@@ -73,7 +74,7 @@ function MemberDashboard({ buildings, organizationId, userName, visibility, summ
   const states = buildings.reduce<Record<string, number>>((counts, building) => building.state ? ({ ...counts, [building.state]: (counts[building.state] ?? 0) + 1 }) : counts, {});
   const pins: PropertyMapPin[] = buildings.filter((building) => Number.isFinite(building.latitude) && Number.isFinite(building.longitude)).map((building) => ({ id: building.id, name: building.name, latitude: Number(building.latitude), longitude: Number(building.longitude), status: building.status, tone: building.status === "venda" ? "sale" : building.occupied > 0 ? "rented" : "available", city: [building.city, building.state].filter(Boolean).join(", "), address: building.address, googleMapsUrl: `https://www.google.com/maps/search/?api=1&query=${building.latitude},${building.longitude}` }));
   return <div className="content member-dashboard">
-    <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Visão consolidada</div><h1>Olá, {userName}!</h1><p className="subtitle">Acompanhe aqui as informações patrimoniais compartilhadas com os membros.</p></div><span className="tag">Acesso de consulta</span></div>
+    <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Visão consolidada</div><h1>Olá, {userName}!</h1><p className="subtitle">Acompanhe aqui as informações patrimoniais compartilhadas com os membros. Mês de referência: {monthLabel(currentMonthKey())}.</p></div><span className="tag">Acesso de consulta</span></div>
     <section className="metrics">
       {visibility.showTotalAssets && <Metric icon={<CircleDollarSign size={15} />} label="Patrimônio total" value={compactBrl(summary.totalValue)} foot="Valor consolidado autorizado" positive />}
       <Metric icon={<Building2 size={15} />} label="Imóveis" value={String(summary.totalBuildings)} foot={`${summary.totalUnits || totalUnits} unidades cadastradas`} positive />
@@ -90,3 +91,4 @@ function MemberDashboard({ buildings, organizationId, userName, visibility, summ
     </section>
   </div>;
 }
+
