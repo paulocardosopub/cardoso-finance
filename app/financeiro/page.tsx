@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { brl } from "@/lib/format";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
-import { currentMonthKey, monthLabel, shiftMonth } from "@/lib/month";
+import { currentMonthKey, isRentalMonthAvailable, monthLabel, shiftMonth } from "@/lib/month";
 import { unitsMonthlyRent } from "@/lib/rent";
 
 type FinancialHistoryRow = { id: string; event_type: "credit" | "debit"; amount: number; description: string; occurred_at: string };
@@ -24,11 +24,12 @@ export default function FinanceiroPage() {
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
     supabase.from("financial_history").select("id, event_type, amount, description, occurred_at").eq("organization_id", organizationId).order("occurred_at", { ascending: false }).limit(100).then(({ data }) => setHistory((data ?? []) as FinancialHistoryRow[]));
   }, [organizationId]);
-  const monthlyRent = unitsMonthlyRent(rentalUnits);
-  const periodPayments = leasePayments.filter((payment) => payment.competence.startsWith(selectedMonth));
+  const rentalMonthAvailable = isRentalMonthAvailable(selectedMonth);
+  const monthlyRent = rentalMonthAvailable ? unitsMonthlyRent(rentalUnits) : 0;
+  const periodPayments = rentalMonthAvailable ? leasePayments.filter((payment) => payment.competence.startsWith(selectedMonth)) : [];
   const periodReceived = periodPayments.reduce((total, payment) => total + Number(payment.netAmount || payment.receivedAmount || 0), 0);
-  const rentedUnits = rentalUnits.reduce((total, unit) => total + (unit.quantity ?? 1), 0);
-  const visibleRentalUnits = useMemo(() => rentalUnits.filter((unit) => `${unit.code} ${unit.building.name} ${unit.building.city} ${unit.building.state}`.toLowerCase().includes(query.toLowerCase())).sort((left, right) => sort === "value_desc" ? right.rent - left.rent : sort === "value_asc" ? left.rent - right.rent : sort === "location_asc" ? `${left.building.city} ${left.building.state}`.localeCompare(`${right.building.city} ${right.building.state}`, "pt-BR") : sort === "status_asc" ? left.status.localeCompare(right.status, "pt-BR") : `${left.building.name} ${left.code}`.localeCompare(`${right.building.name} ${right.code}`, "pt-BR")), [rentalUnits, query, sort]);
+  const rentedUnits = rentalMonthAvailable ? rentalUnits.reduce((total, unit) => total + (unit.quantity ?? 1), 0) : 0;
+  const visibleRentalUnits = useMemo(() => (rentalMonthAvailable ? rentalUnits : []).filter((unit) => `${unit.code} ${unit.building.name} ${unit.building.city} ${unit.building.state}`.toLowerCase().includes(query.toLowerCase())).sort((left, right) => sort === "value_desc" ? right.rent - left.rent : sort === "value_asc" ? left.rent - right.rent : sort === "location_asc" ? `${left.building.city} ${left.building.state}`.localeCompare(`${right.building.city} ${right.building.state}`, "pt-BR") : sort === "status_asc" ? left.status.localeCompare(right.status, "pt-BR") : `${left.building.name} ${left.code}`.localeCompare(`${right.building.name} ${right.code}`)), [rentalMonthAvailable, rentalUnits, query, sort]);
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando financeiro...</p></div></div>;
   if (!organizationId) return <div className="content"><div className="empty-state"><h3>Nenhuma organização selecionada</h3><p>Entre em uma holding para visualizar as receitas.</p></div></div>;
   return <div className="content"><div className="page-heading"><div><div className="eyebrow"><CircleDollarSign size={13} /> Fluxo financeiro</div><h1>Financeiro</h1><p className="subtitle">Receitas exclusivamente dos aluguéis informados nos imóveis. Período: {monthLabel(selectedMonth)} · recebido: {brl(periodReceived)}.</p></div><div className="page-heading-actions"><div className="month-navigator"><button type="button" className="icon-btn" onClick={() => setSelectedMonth((value) => shiftMonth(value, -1))} aria-label="Mês anterior"><ChevronLeft size={16} /></button><CalendarDays size={15} /><strong>{monthLabel(selectedMonth)}</strong><button type="button" className="icon-btn" onClick={() => setSelectedMonth((value) => shiftMonth(value, 1))} aria-label="Próximo mês"><ChevronRight size={16} /></button></div><Link href="/alugueis" className="button button-primary"><ArrowUpRight size={14} /> Registrar aluguéis</Link><Link href="/despesas" className="button button-ghost"><Receipt size={14} /> Gerenciar despesas</Link></div></div>
