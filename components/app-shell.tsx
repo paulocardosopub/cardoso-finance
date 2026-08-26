@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowUpRight, Bell, Building2, Check, ChevronDown, CircleDollarSign, FileText, Home, Landmark, LayoutDashboard, LogOut, MapPinned, Menu, Receipt, Settings2, Users, WalletCards, X } from "lucide-react";
@@ -44,6 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [holdingsOpen, setHoldingsOpen] = useState(false);
   const [holdingMessage, setHoldingMessage] = useState("");
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
   const { organizationId, organizationName, userName, userInitials, userAvatarUrl, holdings, pendingInvitations, role, viewAs, setViewAs, notifications, loading, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation, refresh } = usePortfolio();
   const route = pathname.replace(/\/+$/, "");
   const isPublic = route.endsWith("/login") || route.endsWith("/onboarding");
@@ -63,6 +64,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.requestAnimationFrame(restore);
     return () => { save(); window.removeEventListener("scroll", save); document.removeEventListener("visibilitychange", onVisibility); };
   }, [isPublic, pathname]);
+  useEffect(() => {
+    if (isPublic) return;
+    const onTouchStart = (event: TouchEvent) => {
+      if (window.innerWidth > 760 || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      if (touch.clientX <= 28 || (open && touch.clientX <= 300)) touchStart.current = { x: touch.clientX, y: touch.clientY };
+    };
+    const onTouchEnd = (event: TouchEvent) => {
+      const start = touchStart.current;
+      touchStart.current = null;
+      if (!start || window.innerWidth > 760 || event.changedTouches.length !== 1) return;
+      const touch = event.changedTouches[0];
+      const deltaX = touch.clientX - start.x;
+      const deltaY = touch.clientY - start.y;
+      if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY) * 1.35) return;
+      if (!open && start.x <= 28 && deltaX > 0) setOpen(true);
+      if (open && start.x <= 300 && deltaX < 0) setOpen(false);
+    };
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => { document.removeEventListener("touchstart", onTouchStart); document.removeEventListener("touchend", onTouchEnd); };
+  }, [isPublic, open]);
   useEffect(() => {
     if (!isPublic && !loading && organizationId && role === "viewer" && !memberRouteAllowed(pathname)) router.replace("/");
     if (!isPublic && !loading && organizationId && role === "employee" && !employeeRouteAllowed(pathname)) router.replace("/");

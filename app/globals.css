@@ -465,6 +465,15 @@ body { width:100%; overflow-x:hidden; -webkit-text-size-adjust:100%; }
   .auth-legal { position:static; margin-top:18px; text-align:center; }
 }
 
+/* iOS Safari zooms focused controls whose text is smaller than 16px. Keep
+   the page at its fixed scale while still allowing the map to handle its own
+   gestures and pinch zoom. */
+@media (max-width:760px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea {
+    font-size:16px !important;
+  }
+}
+
 @media (max-width:380px) {
   .content { padding-left:11px; padding-right:11px; }
   .metric-card { padding:11px; }
