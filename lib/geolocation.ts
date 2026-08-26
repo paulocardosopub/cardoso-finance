@@ -21,17 +21,16 @@ function requestWatchedPosition() {
       return;
     }
     let settled = false;
-    let watchId: number | undefined;
-    let timer: number | undefined;
+    const state: { timer?: number; watchId?: number } = {};
     const finish = (location: DeviceLocation | null) => {
       if (settled) return;
       settled = true;
-      if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
-      if (timer !== undefined) window.clearTimeout(timer);
+      if (state.watchId !== undefined) navigator.geolocation.clearWatch(state.watchId);
+      if (state.timer !== undefined) window.clearTimeout(state.timer);
       resolve(location);
     };
-    timer = window.setTimeout(() => finish(null), 15000);
-    watchId = navigator.geolocation.watchPosition(
+    state.timer = window.setTimeout(() => finish(null), 15000);
+    state.watchId = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude, accuracy } = position.coords;
         if (Number.isFinite(latitude) && Number.isFinite(longitude)) finish({ latitude, longitude, accuracy });
