@@ -15,6 +15,13 @@ import type { Building, PropertyUnit } from "@/types/domain";
 
 function isRented(unit: PropertyUnit) { return unit.status === "alugado" || unit.status === "venda_alugado" || Boolean(unit.lease); }
 function isForSale(building: Building) { return building.status === "venda" || (building.unitsData ?? []).some((unit) => unit.status === "venda" || unit.status === "venda_alugado"); }
+function localDate(value: string) { return new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR"); }
+function localToday() {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
 
 export function EmployeeDashboard({ buildings, organizationId, userName, refresh }: { buildings: Building[]; organizationId: string; userName: string; refresh: () => Promise<void> }) {
   const [message, setMessage] = useState("");
@@ -45,7 +52,7 @@ export function EmployeeDashboard({ buildings, organizationId, userName, refresh
   const rentalMonthAvailable = isRentalMonthAvailable(selectedMonth);
   const openPayments = rentalMonthAvailable ? rented.filter(({ unit }) => !unit.lease?.id || !paidLeaseIds.has(unit.lease.id)) : [];
   function requestPaymentConfirmation(building: Building, unit: PropertyUnit) {
-    setPaymentConfirmation({ building, unit, values: { paymentDate: new Date().toISOString().slice(0, 10), amount: String(unit.rent), proof: null, note: "" } });
+    setPaymentConfirmation({ building, unit, values: { paymentDate: localToday(), amount: String(unit.rent), proof: null, note: "" } });
   }
   async function togglePayment(building: Building, unit: PropertyUnit, paid: boolean, values?: PaymentConfirmationValues) {
     if (!unit.rent || !isRentalMonthAvailable(selectedMonth) || (paid && !values)) return;
@@ -62,7 +69,7 @@ export function EmployeeDashboard({ buildings, organizationId, userName, refresh
       receiptPath = upload.path;
     }
     const result = await supabase.rpc("toggle_unit_payment", { target_org: organizationId, target_unit: unit.id, target_competence: `${selectedMonth}-01`, mark_paid: paid, target_payment_date: paymentDate, target_amount: paid ? amount : null, target_receipt_path: receiptPath, target_notes: paid ? values?.note?.trim() || null : null });
-    setMessage(result.error ? (result.error.message === "payment_already_exists" ? `Este aluguel já foi confirmado para ${monthLabel(selectedMonth)}.` : `Não foi possível atualizar o pagamento${result.error.message ? `: ${result.error.message}` : "."}`) : (paid ? `Pagamento de ${monthLabel(selectedMonth)} confirmado em ${now.toLocaleDateString("pt-BR")}. Crédito criado.` : `Pagamento de ${monthLabel(selectedMonth)} desmarcado em ${now.toLocaleDateString("pt-BR")}. Crédito desfeito.`));
+    setMessage(result.error ? (result.error.message === "payment_already_exists" ? `Este aluguel já foi confirmado para ${monthLabel(selectedMonth)}.` : `Não foi possível atualizar o pagamento${result.error.message ? `: ${result.error.message}` : "."}`) : (paid ? `Pagamento de ${monthLabel(selectedMonth)} confirmado em ${paymentDate ? localDate(paymentDate) : now.toLocaleDateString("pt-BR")}. Crédito criado.` : `Pagamento de ${monthLabel(selectedMonth)} desmarcado em ${now.toLocaleDateString("pt-BR")}. Crédito desfeito.`));
     if (!result.error) { const leaseId = String(result.data?.leaseId ?? unit.lease?.id ?? ""); setPaidLeaseIds((current) => { const next = new Set(current); if (paid && leaseId) next.add(leaseId); else if (leaseId) next.delete(leaseId); return next; }); setPaidAmounts((current) => { const next = { ...current }; if (paid && leaseId) next[leaseId] = amount ?? unit.rent; else if (leaseId) delete next[leaseId]; return next; }); setPaymentConfirmation(null); await refresh(); }
     setBusy(null);
   }

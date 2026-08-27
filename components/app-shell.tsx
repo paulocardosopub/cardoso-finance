@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowUpRight, Bell, Building2, Check, ChevronDown, CircleDollarSign, FileText, Home, Landmark, LayoutDashboard, LogOut, MapPinned, Menu, Receipt, Settings2, Users, WalletCards, X } from "lucide-react";
+import { ArrowUpRight, Bell, Building2, Check, ChevronDown, CircleDollarSign, FileText, History, Home, Landmark, LayoutDashboard, LogOut, MapPinned, Menu, Receipt, Settings2, Users, WalletCards, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { employeeRouteAllowed, memberRouteAllowed, roleLabels } from "@/lib/member-access";
@@ -36,6 +36,7 @@ const memberNav = [
 const employeeNav = [
   { href: "/", label: "Painel operacional", icon: LayoutDashboard },
   { href: "/imoveis", label: "Imóveis", icon: Building2 },
+  { href: "/historico-pagamentos", label: "Histórico de pagamentos", icon: History },
   { href: "/mapa", label: "Mapa e visitas", icon: MapPinned },
   { href: "/despesas-variaveis", label: "Despesas variáveis", icon: Receipt },
   { href: "/configuracoes", label: "Configurações", icon: Settings2 },
