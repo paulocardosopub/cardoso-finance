@@ -6,6 +6,7 @@ export type PaymentConfirmationValues = {
   paymentDate: string;
   amount: string;
   proof: File | null;
+  note: string;
 };
 
 export function PaymentConfirmationModal({
@@ -33,6 +34,7 @@ export function PaymentConfirmationModal({
     <div className="form-grid">
       <label>Data do pagamento<input type="date" value={values.paymentDate} onChange={(event) => onChange({ ...values, paymentDate: event.target.value })} required /></label>
       <label>Valor confirmado<input type="number" min="0.01" step="0.01" value={values.amount} onChange={(event) => onChange({ ...values, amount: event.target.value })} required /></label>
+      <label className="form-grid-wide">Observação <span className="muted">(opcional; explique diferenças no valor mensal)</span><textarea rows={3} value={values.note} onChange={(event) => onChange({ ...values, note: event.target.value })} placeholder="Ex.: desconto negociado, multa ou pagamento parcial" /></label>
       <label className="form-grid-wide payment-proof-field">Comprovante <span className="muted">(opcional)</span><span className="payment-proof-input"><Paperclip size={14} /><input type="file" accept="application/pdf,image/*" onChange={(event) => onChange({ ...values, proof: event.target.files?.[0] ?? null })} /><span>{values.proof?.name ?? "Anexar comprovante"}</span></span></label>
     </div>
     <p className="muted payment-confirmation-note"><CalendarDays size={14} /> O lançamento será registrado neste mês e o crédito será criado automaticamente.</p>

@@ -17,7 +17,7 @@ import type { Building, PropertyUnit, UnitStatus } from "@/types/domain";
 const labels: Record<string, string> = { alugado: "Alugado", vago: "Vago", venda: "À venda", venda_alugado: "À venda e alugado", manutencao: "Manutenção", servico: "Serviço", negociacao: "Negociação" };
 const dbStatus: Record<UnitStatus, string> = { alugado: "rented", vago: "vacant", manutencao: "maintenance", servico: "service", negociacao: "negotiation", venda: "for_sale", venda_alugado: "for_sale", vendido: "sold" };
 type DocumentRow = { id: string; name: string; category: string; storage_path: string; mime_type?: string; is_primary?: boolean; signedUrl?: string };
-type PaymentRow = { lease_id: string; status?: string | null; received_amount?: number | null; expected_amount?: number | null; received_at?: string | null };
+type PaymentRow = { lease_id: string; status?: string | null; received_amount?: number | null; expected_amount?: number | null; received_at?: string | null; notes?: string | null };
 
 export function EmployeeBuildingClient({ building }: { building: Building }) {
   const { organizationId, refresh } = usePortfolio();
@@ -53,7 +53,7 @@ export function EmployeeBuildingClient({ building }: { building: Building }) {
     if (!organizationId) return;
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
     if (!isRentalMonthAvailable(selectedMonth)) { setPayments([]); return; }
-    const loadPayments = () => supabase.from("lease_payments").select("lease_id, status, received_amount, expected_amount, received_at").eq("organization_id", organizationId).eq("competence", `${selectedMonth}-01`).then(({ data }) => setPayments((data ?? []) as PaymentRow[]));
+    const loadPayments = () => supabase.from("lease_payments").select("lease_id, status, received_amount, expected_amount, received_at, notes").eq("organization_id", organizationId).eq("competence", `${selectedMonth}-01`).then(({ data }) => setPayments((data ?? []) as PaymentRow[]));
     void loadPayments();
     const channel = supabase.channel(`employee-building-payments-${organizationId}-${building.dbId}-${selectedMonth}`).on("postgres_changes", { event: "*", schema: "public", table: "lease_payments", filter: `organization_id=eq.${organizationId}` }, () => { void loadPayments(); }).subscribe();
     const timer = window.setInterval(() => { void loadPayments(); }, 15000);
@@ -116,7 +116,7 @@ export function EmployeeBuildingClient({ building }: { building: Building }) {
     setBusy(false);
   }
   function requestPaymentConfirmation(unit: PropertyUnit) {
-    setPaymentConfirmation({ unit, values: { paymentDate: new Date().toISOString().slice(0, 10), amount: String(unit.rent), proof: null } });
+    setPaymentConfirmation({ unit, values: { paymentDate: new Date().toISOString().slice(0, 10), amount: String(unit.rent), proof: null, note: "" } });
   }
   async function togglePayment(unit: PropertyUnit, markPaid: boolean, values?: PaymentConfirmationValues) {
     if (!organizationId || !unit.rent || !isRentalMonthAvailable(selectedMonth) || (markPaid && !values)) return;
@@ -133,7 +133,7 @@ export function EmployeeBuildingClient({ building }: { building: Building }) {
       if (upload.error) { setMessage(`Não foi possível anexar o comprovante: ${upload.error}`); setBusy(false); return; }
       receiptPath = upload.path;
     }
-    const result = await supabase.rpc("toggle_unit_payment", { target_org: organizationId, target_unit: unit.id, target_competence: competence, mark_paid: markPaid, target_payment_date: paymentDate, target_amount: markPaid ? amount : null, target_receipt_path: receiptPath });
+    const result = await supabase.rpc("toggle_unit_payment", { target_org: organizationId, target_unit: unit.id, target_competence: competence, mark_paid: markPaid, target_payment_date: paymentDate, target_amount: markPaid ? amount : null, target_receipt_path: receiptPath, target_notes: markPaid ? values?.note?.trim() || null : null });
     setMessage(result.error ? `Não foi possível atualizar o pagamento${result.error.message ? `: ${result.error.message}` : "."}` : (markPaid ? `Pagamento de ${monthLabel(selectedMonth)} confirmado em ${now.toLocaleDateString("pt-BR")}. Crédito criado.` : `Pagamento de ${monthLabel(selectedMonth)} desmarcado em ${now.toLocaleDateString("pt-BR")}. Crédito desfeito.`));
     if (!result.error) { const leaseId = String(result.data?.leaseId ?? unit.lease?.id ?? ""); setPayments((rows) => markPaid ? [...rows.filter((row) => row.lease_id !== leaseId), { lease_id: leaseId, status: "paid", received_amount: amount ?? unit.rent, expected_amount: unit.rent, received_at: paymentDate ?? now.toISOString() }] : rows.filter((row) => row.lease_id !== leaseId)); setPaymentConfirmation(null); await refresh(); }
     setBusy(false);
