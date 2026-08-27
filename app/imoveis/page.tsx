@@ -130,9 +130,13 @@ function EmployeeProperties({ organizationId, buildings, buildingPhotos, query, 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !organizationId || !isRentalMonthAvailable(selectedMonth)) { setPayments([]); return; }
-    supabase.from("lease_payments").select("lease_id, expected_amount, received_amount, net_amount, status").eq("organization_id", organizationId).eq("competence", selectedMonth + "-01").then(({ data }) => {
+    const loadPayments = () => supabase.from("lease_payments").select("lease_id, expected_amount, received_amount, net_amount, status").eq("organization_id", organizationId).eq("competence", selectedMonth + "-01").then(({ data }) => {
       setPayments((data ?? []) as Array<{ lease_id: string; expected_amount: number; received_amount: number; net_amount: number; status: string }>);
     });
+    void loadPayments();
+    const channel = supabase.channel(`employee-properties-payments-${organizationId}-${selectedMonth}`).on("postgres_changes", { event: "*", schema: "public", table: "lease_payments", filter: `organization_id=eq.${organizationId}` }, () => { void loadPayments(); }).subscribe();
+    const timer = window.setInterval(() => { void loadPayments(); }, 15000);
+    return () => { window.clearInterval(timer); void supabase.removeChannel(channel); };
   }, [organizationId, selectedMonth]);
 
   const paymentByLease = useMemo(() => new Map(payments.map((payment) => [String(payment.lease_id), payment])), [payments]);

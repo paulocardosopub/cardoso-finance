@@ -30,7 +30,11 @@ export function EmployeeDashboard({ buildings, organizationId, userName, refresh
   useEffect(() => {
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
     if (!isRentalMonthAvailable(selectedMonth)) { setPaidLeaseIds(new Set()); return; }
-    supabase.from("lease_payments").select("lease_id, status, received_amount, expected_amount").eq("organization_id", organizationId).eq("competence", `${selectedMonth}-01`).then(({ data }) => setPaidLeaseIds(new Set((data ?? []).filter((row) => row.status === "paid" || Number(row.received_amount ?? 0) >= Number(row.expected_amount ?? 0)).map((row) => String(row.lease_id)))));
+    const loadPayments = () => supabase.from("lease_payments").select("lease_id, status, received_amount, expected_amount").eq("organization_id", organizationId).eq("competence", `${selectedMonth}-01`).then(({ data }) => setPaidLeaseIds(new Set((data ?? []).filter((row) => row.status === "paid" || Number(row.received_amount ?? 0) >= Number(row.expected_amount ?? 0)).map((row) => String(row.lease_id)))));
+    void loadPayments();
+    const channel = supabase.channel(`employee-payments-${organizationId}-${selectedMonth}`).on("postgres_changes", { event: "*", schema: "public", table: "lease_payments", filter: `organization_id=eq.${organizationId}` }, () => { void loadPayments(); }).subscribe();
+    const timer = window.setInterval(() => { void loadPayments(); }, 15000);
+    return () => { window.clearInterval(timer); void supabase.removeChannel(channel); };
   }, [organizationId, selectedMonth]);
   const active = buildings.filter((building) => building.status !== "vendido");
   const units = active.flatMap((building) => (building.unitsData ?? []).map((unit) => ({ building, unit })));
@@ -43,7 +47,7 @@ export function EmployeeDashboard({ buildings, organizationId, userName, refresh
     setPaymentConfirmation({ building, unit, values: { paymentDate: new Date().toISOString().slice(0, 10), amount: String(unit.rent), proof: null } });
   }
   async function togglePayment(building: Building, unit: PropertyUnit, paid: boolean, values?: PaymentConfirmationValues) {
-    if (!unit.lease?.id || !isRentalMonthAvailable(selectedMonth) || (paid && !values)) return;
+    if (!unit.rent || !isRentalMonthAvailable(selectedMonth) || (paid && !values)) return;
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
     setBusy(`payment:${unit.id}`); setMessage("");
     const now = new Date();
@@ -56,9 +60,9 @@ export function EmployeeDashboard({ buildings, organizationId, userName, refresh
       if (upload.error) { setMessage(`Não foi possível anexar o comprovante: ${upload.error}`); setBusy(null); return; }
       receiptPath = upload.path;
     }
-    const result = await supabase.rpc("toggle_lease_payment", { target_org: organizationId, target_lease: unit.lease.id, target_competence: `${selectedMonth}-01`, mark_paid: paid, target_payment_date: paymentDate, target_amount: paid ? amount : null, target_receipt_path: receiptPath });
+    const result = await supabase.rpc("toggle_unit_payment", { target_org: organizationId, target_unit: unit.id, target_competence: `${selectedMonth}-01`, mark_paid: paid, target_payment_date: paymentDate, target_amount: paid ? amount : null, target_receipt_path: receiptPath });
     setMessage(result.error ? (result.error.message === "payment_already_exists" ? `Este aluguel já foi confirmado para ${monthLabel(selectedMonth)}.` : `Não foi possível atualizar o pagamento${result.error.message ? `: ${result.error.message}` : "."}`) : (paid ? `Pagamento de ${monthLabel(selectedMonth)} confirmado em ${now.toLocaleDateString("pt-BR")}. Crédito criado.` : `Pagamento de ${monthLabel(selectedMonth)} desmarcado em ${now.toLocaleDateString("pt-BR")}. Crédito desfeito.`));
-    if (!result.error) { setPaidLeaseIds((current) => { const next = new Set(current); if (paid) next.add(unit.lease!.id); else next.delete(unit.lease!.id); return next; }); setPaymentConfirmation(null); await refresh(); }
+    if (!result.error) { const leaseId = String(result.data?.leaseId ?? unit.lease?.id ?? ""); setPaidLeaseIds((current) => { const next = new Set(current); if (paid && leaseId) next.add(leaseId); else if (leaseId) next.delete(leaseId); return next; }); setPaymentConfirmation(null); await refresh(); }
     setBusy(null);
   }
   async function markVisited(building: Building) {
