@@ -192,7 +192,12 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const previewMembers = !previewMembersResult?.error ? ((previewMembersResult?.data ?? []) as Array<Record<string, unknown>>).map((member) => ({ memberId: String(member.member_id), userId: member.user_id ? String(member.user_id) : null, contactId: member.contact_id ? String(member.contact_id) : null, name: String(member.full_name ?? "Membro"), role: roleMap[String(member.role)] ?? "viewer", isPlaceholder: Boolean(member.is_placeholder) })) : [];
     const ownMember = previewMembers.find((member) => member.userId === session.user.id);
     const selectedMember = previewAllowed ? previewMembers.find((member) => previewRef(member) === viewAsMemberId || member.userId === viewAsMemberId || member.memberId === viewAsMemberId) : null;
-    const selectedPreviewMemberId = viewAs === "viewer" ? (previewAllowed ? (selectedMember ? previewRef(selectedMember) : (ownMember ? previewRef(ownMember) : previewMembers[0] ? previewRef(previewMembers[0]) : null)) : session.user.id) : null;
+    const employeeMembers = previewMembers.filter((member) => member.role === "employee");
+    const selectedEmployee = previewAllowed ? employeeMembers.find((member) => previewRef(member) === viewAsMemberId || member.userId === viewAsMemberId || member.memberId === viewAsMemberId) : null;
+    const selectedPreviewMemberId = viewAs === "viewer"
+      ? (previewAllowed ? (selectedMember ? previewRef(selectedMember) : (ownMember ? previewRef(ownMember) : previewMembers[0] ? previewRef(previewMembers[0]) : null)) : session.user.id)
+      : viewAs === "employee" ? (previewAllowed ? (selectedEmployee ? previewRef(selectedEmployee) : employeeMembers[0] ? previewRef(employeeMembers[0]) : null) : null)
+      : null;
     const effectiveRole: MemberRole = previewAllowed && viewAs === "viewer" ? "viewer" : previewAllowed && viewAs === "employee" ? "employee" : actualRole;
     const invitationsResult = selectedMembership.role === "viewer" ? null : await supabase.rpc("list_my_invitations");
     const pendingInvitations = invitationsResult && !invitationsResult.error ? mapPendingInvitations(invitationsResult.data) : [];
@@ -358,8 +363,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
   const setViewAs = useCallback((next: "actual" | "viewer" | "employee") => {
     setViewAsState(next);
+    setViewAsMemberState(null);
     setValue((current) => ({ ...current, viewAs: next }));
     window.localStorage.setItem("cardoso-view-as", next);
+    window.localStorage.removeItem("cardoso-view-as-member");
   }, []);
   const setViewAsMember = useCallback((memberId: string | null) => {
     setViewAsMemberState(memberId);
