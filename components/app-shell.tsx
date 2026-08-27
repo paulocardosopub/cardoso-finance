@@ -49,7 +49,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [holdingsOpen, setHoldingsOpen] = useState(false);
   const [holdingMessage, setHoldingMessage] = useState("");
   const touchStart = useRef<{ x: number; y: number } | null>(null);
-  const { organizationId, organizationName, userName, userInitials, userAvatarUrl, holdings, pendingInvitations, role, viewAs, setViewAs, notifications, loading, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation, refresh } = usePortfolio();
+  const { organizationId, organizationName, userName, userInitials, userAvatarUrl, holdings, pendingInvitations, role, viewAs, viewAsMemberId, previewMembers, setViewAs, setViewAsMember, notifications, loading, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation, refresh } = usePortfolio();
   const route = pathname.replace(/\/+$/, "");
   const isPublic = route.endsWith("/login") || route.endsWith("/onboarding");
   const canPreviewRoles = !loading && holdings.some((holding) => holding.id === organizationId && (holding.role === "owner" || holding.role === "admin" || holding.role === "manager"));
@@ -61,17 +61,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (isPublic) return;
     const key = `cardoso-scroll:${pathname}`;
     const restore = () => {
+      if (loading) return;
       const saved = Number(window.sessionStorage.getItem(key));
       if (Number.isFinite(saved) && saved > 0) window.scrollTo({ top: saved, behavior: "auto" });
     };
-    const save = () => window.sessionStorage.setItem(key, String(window.scrollY));
-    const onVisibility = () => { if (document.visibilityState === "visible") window.requestAnimationFrame(restore); else save(); };
+    const scheduleRestore = () => {
+      if (loading) return;
+      window.requestAnimationFrame(() => window.requestAnimationFrame(restore));
+      window.setTimeout(restore, 180);
+    };
+    const save = () => {
+      // Do not overwrite a saved list position with the temporary zero scroll
+      // produced while the provider is refreshing after a payment.
+      if (!loading || window.scrollY > 0) window.sessionStorage.setItem(key, String(window.scrollY));
+    };
+    const onVisibility = () => { if (document.visibilityState === "visible") scheduleRestore(); else save(); };
+    const onPageShow = () => scheduleRestore();
     window.history.scrollRestoration = "manual";
     window.addEventListener("scroll", save, { passive: true });
     document.addEventListener("visibilitychange", onVisibility);
-    window.requestAnimationFrame(restore);
-    return () => { save(); window.removeEventListener("scroll", save); document.removeEventListener("visibilitychange", onVisibility); };
-  }, [isPublic, pathname]);
+    window.addEventListener("pageshow", onPageShow);
+    scheduleRestore();
+    return () => { save(); window.removeEventListener("scroll", save); document.removeEventListener("visibilitychange", onVisibility); window.removeEventListener("pageshow", onPageShow); };
+  }, [isPublic, loading, pathname]);
   useEffect(() => {
     if (isPublic) return;
     const onTouchStart = (event: TouchEvent) => {
@@ -153,6 +165,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {menuRole !== "viewer" && menuRole !== "employee" && <><div className="nav-label" style={{ marginTop: 25 }}>Gestão</div><nav className="nav">{managementNav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setOpen(false)} className={pathname.startsWith(href) ? "nav-link active" : "nav-link"}><Icon size={16} strokeWidth={1.8} />{label}</Link>)}</nav></>}
       <div className="sidebar-bottom"><div className="profile-mini"><div className="avatar">{userAvatarUrl ? <img src={userAvatarUrl} alt={`Foto de ${userName}`} /> : userInitials}</div><div><strong>{userName}</strong><small>{roleLabels[menuRole]}</small></div><button className="icon-btn" onClick={signOut} aria-label="Sair"><LogOut size={14} /></button></div></div>
     </aside>
-    <main className="main"><header className="topbar"><button className="icon-btn mobile-menu" onClick={() => setOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button><div className="breadcrumb"><Home size={13} /><span>/</span><strong>{pathname === "/" ? menuRole === "employee" ? "Painel operacional" : "Visão geral" : pathname.slice(1).replaceAll("-", " ")}</strong></div><div className="top-actions">{canPreviewRoles && <label className="view-as-control"><span>Visualizar como</span><select value={viewAs} onChange={(event) => setViewAs(event.target.value as "actual" | "viewer" | "employee")} aria-label="Visualizar como"><option value="actual">Minha visão</option><option value="viewer">Membro</option><option value="employee">Funcionária</option></select></label>}{menuRole !== "viewer" && menuRole !== "employee" && <button className={notifications.length ? "icon-btn notification-dot" : "icon-btn"} aria-label="Notificações"><Bell size={17} /></button>}<div className="avatar" style={{ width: 27, height: 27, fontSize: 10 }}>{userAvatarUrl ? <img src={userAvatarUrl} alt={`Foto de ${userName}`} /> : userInitials}</div></div></header>{children}</main>
+    <main className="main"><header className="topbar"><button className="icon-btn mobile-menu" onClick={() => setOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button><div className="breadcrumb"><Home size={13} /><span>/</span><strong>{pathname === "/" ? menuRole === "employee" ? "Painel operacional" : "Visão geral" : pathname.slice(1).replaceAll("-", " ")}</strong></div><div className="top-actions">{canPreviewRoles && <div className="view-as-control"><label><span>Visualizar como</span><select value={viewAs} onChange={(event) => setViewAs(event.target.value as "actual" | "viewer" | "employee")} aria-label="Visualizar como"><option value="actual">Gestor</option><option value="viewer">Membro</option><option value="employee">Funcionária</option></select></label>{viewAs === "viewer" && <select value={viewAsMemberId ?? ""} onChange={(event) => setViewAsMember(event.target.value || null)} aria-label="Membro visualizado"><option value="" disabled>Selecionar membro</option>{previewMembers.map((member) => <option value={member.userId} key={member.userId}>{member.name}</option>)}</select>}</div>}{menuRole !== "viewer" && menuRole !== "employee" && <button className={notifications.length ? "icon-btn notification-dot" : "icon-btn"} aria-label="Notificações"><Bell size={17} /></button>}<div className="avatar" style={{ width: 27, height: 27, fontSize: 10 }}>{userAvatarUrl ? <img src={userAvatarUrl} alt={`Foto de ${userName}`} /> : userInitials}</div></div></header>{children}</main>
   </div>;
 }

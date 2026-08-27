@@ -14,6 +14,7 @@ export type MemberVisibility = {
 
 export type MemberSummary = {
   totalValue: number;
+  holdingTotalValue: number;
   totalBuildings: number;
   totalUnits: number;
   totalRent: number;
@@ -179,3 +180,4 @@ export type Activity = {
   value: string;
   date: string;
 };
+

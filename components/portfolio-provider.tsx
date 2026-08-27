@@ -21,6 +21,8 @@ type PortfolioContextValue = {
   role: MemberRole;
   actualRole: MemberRole;
   viewAs: "actual" | "viewer" | "employee";
+  viewAsMemberId: string | null;
+  previewMembers: Array<{ userId: string; name: string; role: MemberRole }>;
   memberVisibility: MemberVisibility;
   memberSummary: MemberSummary;
   ownershipSummary: OwnershipSummary[];
@@ -41,6 +43,7 @@ type PortfolioContextValue = {
   acceptInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>;
   declineInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>;
   setViewAs: (viewAs: "actual" | "viewer" | "employee") => void;
+  setViewAsMember: (memberId: string | null) => void;
 };
 
 type PendingInvitation = { id: string; organizationId: string; organizationName: string; role: MemberRole; expiresAt: string };
@@ -141,7 +144,8 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [sessionResolved, setSessionResolved] = useState(false);
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("cardoso-active-organization"));
   const [viewAs, setViewAsState] = useState<"actual" | "viewer" | "employee">(() => typeof window === "undefined" ? "actual" : (window.localStorage.getItem("cardoso-view-as") as "actual" | "viewer" | "employee" | null) ?? "actual");
-  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "setPrimaryOrganization" | "acceptInvitation" | "declineInvitation" | "setViewAs">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", userEmail: "", userPhone: "", userAvatarUrl: "", holdings: [], pendingInvitations: [], role: "viewer", actualRole: "viewer", viewAs: "actual", memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" });
+  const [viewAsMemberId, setViewAsMemberState] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("cardoso-view-as-member"));
+  const [value, setValue] = useState<Omit<PortfolioContextValue, "refresh" | "switchOrganization" | "setPrimaryOrganization" | "acceptInvitation" | "declineInvitation" | "setViewAs" | "setViewAsMember">>({ organizationId: null, organizationName: "Cardoso Finance", userName: "Usuário", userInitials: "US", userEmail: "", userPhone: "", userAvatarUrl: "", holdings: [], pendingInvitations: [], role: "viewer", actualRole: "viewer", viewAs: "actual", viewAsMemberId: null, previewMembers: [], memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" });
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -156,7 +160,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     if (!supabase || !session) { setValue((current) => ({ ...current, loading: false })); return; }
     // Clear the previous organization's role and data before any request so a
     // fast refresh can never render a stale administrator menu or records.
-    setValue((current) => ({ ...current, organizationId: null, organizationName: "Cardoso Finance", holdings: [], role: "viewer", actualRole: "viewer", memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" }));
+    setValue((current) => ({ ...current, organizationId: null, organizationName: "Cardoso Finance", holdings: [], previewMembers: [], role: "viewer", actualRole: "viewer", memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" }));
     const membershipsResult = await supabase.from("organization_members").select("organization_id, role, joined_at, is_primary").eq("user_id", session.user.id).order("joined_at", { ascending: true });
     if (membershipsResult.error) { setValue((current) => ({ ...current, loading: false, error: membershipsResult.error.message })); return; }
     const profile = await supabase.from("profiles").select("full_name, phone, avatar_url").eq("id", session.user.id).maybeSingle();
@@ -169,7 +173,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     if (!memberOrganizationIds.length) {
       const invitationsResult = await supabase.rpc("list_my_invitations");
       const pendingInvitations = invitationsResult.error ? [] : mapPendingInvitations(invitationsResult.data);
-      setValue((current) => ({ ...current, organizationId: null, userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings: [], pendingInvitations, memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false }));
+      setValue((current) => ({ ...current, organizationId: null, userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings: [], pendingInvitations, memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false }));
       return;
     }
     const organizationsResult = await supabase.from("organizations").select("id, name").in("id", memberOrganizationIds);
@@ -180,6 +184,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const organizationId = selectedMembership.id;
     const actualRole = selectedMembership.role;
     const previewAllowed = actualRole === "owner" || actualRole === "admin" || actualRole === "manager";
+    const previewMembersResult = previewAllowed ? await supabase.rpc("list_organization_members", { target_org: organizationId }) : null;
+    const previewMembers = !previewMembersResult?.error ? ((previewMembersResult?.data ?? []) as Array<Record<string, unknown>>).filter((member) => member.user_id).map((member) => ({ userId: String(member.user_id), name: String(member.full_name ?? "Membro"), role: roleMap[String(member.role)] ?? "viewer" })) : [];
+    const ownMember = previewMembers.find((member) => member.userId === session.user.id);
+    const selectedPreviewMemberId = viewAs === "viewer" ? (previewAllowed ? (previewMembers.some((member) => member.userId === viewAsMemberId) ? viewAsMemberId : (ownMember?.userId ?? previewMembers[0]?.userId ?? null)) : session.user.id) : null;
     const effectiveRole: MemberRole = previewAllowed && viewAs === "viewer" ? "viewer" : previewAllowed && viewAs === "employee" ? "employee" : actualRole;
     const invitationsResult = selectedMembership.role === "viewer" ? null : await supabase.rpc("list_my_invitations");
     const pendingInvitations = invitationsResult && !invitationsResult.error ? mapPendingInvitations(invitationsResult.data) : [];
@@ -189,21 +197,21 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       const employeeResult = await supabase.rpc("get_employee_portfolio", { target_org: organizationId });
       if (employeeResult.error) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, role: "employee", loading: false, error: employeeResult.error.message })); return; }
       const employeeData = (employeeResult.data ?? {}) as Record<string, unknown>;
-      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "employee", actualRole, viewAs, memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: mapEmployeeBuildings((employeeData.buildings ?? []) as Array<Record<string, unknown>>), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
+      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "employee", actualRole, viewAs, viewAsMemberId: selectedPreviewMemberId, previewMembers, memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: mapEmployeeBuildings((employeeData.buildings ?? []) as Array<Record<string, unknown>>), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
       return;
     }
     if (effectiveRole === "viewer") {
-      const memberResult = await supabase.rpc("get_member_portfolio", { target_org: organizationId });
+      const memberResult = selectedPreviewMemberId ? await supabase.rpc("get_member_portfolio", { target_org: organizationId, target_member_user: selectedPreviewMemberId }) : await supabase.rpc("get_member_portfolio", { target_org: organizationId });
       if (memberResult.error) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, role: "viewer", loading: false, error: memberResult.error.message })); return; }
       const memberData = (memberResult.data ?? {}) as Record<string, unknown>;
       const summary = (memberData.summary ?? {}) as Record<string, unknown>;
       const memberVisibility = visibilityFromRow((memberData.settings ?? {}) as Record<string, unknown>);
       const totalRent = Number(summary.totalRent ?? 0);
       const grossRent = Number(summary.grossRent ?? totalRent);
-      const memberSummary = { totalValue: Number(summary.totalValue ?? 0), totalBuildings: Number(summary.totalBuildings ?? 0), totalUnits: Number(summary.totalUnits ?? 0), totalRent, ownershipPercentage: Number(summary.ownershipPercentage ?? 0) };
+      const memberSummary = { totalValue: Number(summary.totalValue ?? 0), holdingTotalValue: Number(summary.holdingTotalValue ?? 0), totalBuildings: Number(summary.totalBuildings ?? 0), totalUnits: Number(summary.totalUnits ?? 0), totalRent, ownershipPercentage: Number(summary.ownershipPercentage ?? 0) };
       const rentFactor = grossRent !== 0 ? totalRent / grossRent : 0;
       const ownershipSummary = ((memberData.ownership ?? []) as Array<Record<string, unknown>>).map((item) => ({ name: String(item.name ?? "Membro"), percentage: Number(item.percentage ?? 0) }));
-      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "viewer", actualRole, viewAs, memberVisibility, memberSummary, ownershipSummary, buildings: mapMemberBuildings((memberData.buildings ?? []) as Array<Record<string, unknown>>, rentFactor), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
+      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "viewer", actualRole, viewAs, viewAsMemberId: selectedPreviewMemberId, previewMembers, memberVisibility, memberSummary, ownershipSummary, buildings: mapMemberBuildings((memberData.buildings ?? []) as Array<Record<string, unknown>>, rentFactor), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
       return;
     }
     const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, revenueCreditsResult, distributionsResult, distributionItemsResult, bankAccountResult, visibilityResult] = await Promise.all([
@@ -281,11 +289,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const monthlyProfit = mappedBuildings.reduce((total, building) => total + building.revenue, 0) - monthlyExpenses - monthlyIndividualBenefits;
     const paidExpenses = expenses.filter((expense) => new Date(`${expense.expense_date}T12:00:00`) <= new Date()).reduce((total, expense) => total + Number(expense.value || 0), 0);
     const bankBalance = (bankAccount?.initialBalance ?? 0) + paidRent + saleCredits - paidExpenses - paidDistributions - historicalIndividualBenefits;
-    const memberSummary = { totalValue: mappedBuildings.filter((building) => building.status !== "vendido").reduce((sum, building) => sum + building.value, 0), totalBuildings: mappedBuildings.filter((building) => building.status !== "vendido").length, totalUnits: mappedBuildings.reduce((sum, building) => sum + building.units, 0), totalRent: mappedBuildings.reduce((sum, building) => sum + building.revenue, 0), ownershipPercentage: 0 };
-    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: effectiveRole, actualRole, viewAs, memberVisibility: visibilityFromRow(visibilityResult.data as Record<string, unknown> | null), memberSummary, ownershipSummary: [], buildings: mappedBuildings, expenses, leasePayments, distributions, bankAccount, bankBalance, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
-  }, [activeOrganizationId, session, viewAs]);
+    const memberSummary = { totalValue: mappedBuildings.filter((building) => building.status !== "vendido").reduce((sum, building) => sum + building.value, 0), holdingTotalValue: 0, totalBuildings: mappedBuildings.filter((building) => building.status !== "vendido").length, totalUnits: mappedBuildings.reduce((sum, building) => sum + building.units, 0), totalRent: mappedBuildings.reduce((sum, building) => sum + building.revenue, 0), ownershipPercentage: 0 };
+    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: effectiveRole, actualRole, viewAs, viewAsMemberId: selectedPreviewMemberId, previewMembers, memberVisibility: visibilityFromRow(visibilityResult.data as Record<string, unknown> | null), memberSummary, ownershipSummary: [], buildings: mappedBuildings, expenses, leasePayments, distributions, bankAccount, bankBalance, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
+  }, [activeOrganizationId, session, viewAs, viewAsMemberId]);
 
-  useEffect(() => { if (!sessionResolved) return; if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session, sessionResolved]);
+  useEffect(() => { if (!sessionResolved) return; if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session, sessionResolved]);
   useEffect(() => {
     if (!session) return;
     const interval = window.setInterval(async () => {
@@ -330,7 +338,12 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     setValue((current) => ({ ...current, viewAs: next }));
     window.localStorage.setItem("cardoso-view-as", next);
   }, []);
-  const context = useMemo(() => ({ ...value, refresh, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation, setViewAs }), [acceptInvitation, declineInvitation, refresh, setPrimaryOrganization, setViewAs, switchOrganization, value]);
+  const setViewAsMember = useCallback((memberId: string | null) => {
+    setViewAsMemberState(memberId);
+    setValue((current) => ({ ...current, viewAsMemberId: memberId }));
+    if (memberId) window.localStorage.setItem("cardoso-view-as-member", memberId); else window.localStorage.removeItem("cardoso-view-as-member");
+  }, []);
+  const context = useMemo(() => ({ ...value, refresh, switchOrganization, setPrimaryOrganization, acceptInvitation, declineInvitation, setViewAs, setViewAsMember }), [acceptInvitation, declineInvitation, refresh, setPrimaryOrganization, setViewAs, setViewAsMember, switchOrganization, value]);
   return <PortfolioContext.Provider value={context}>{children}</PortfolioContext.Provider>;
 }
 
@@ -339,4 +352,5 @@ export function usePortfolio() {
   if (!context) throw new Error("usePortfolio precisa estar dentro de PortfolioProvider");
   return context;
 }
+
 
