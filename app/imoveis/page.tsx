@@ -29,6 +29,10 @@ export default function ImoveisPage() {
   const [saleMessage, setSaleMessage] = useState("");
   const [createForm, setCreateForm] = useState({ name: "", address: "", city: "", state: "DF", postalCode: "", value: "", units: "1", status: "active", lastValuationDate: "" });
   useEffect(() => {
+    const requestedFilter = new URLSearchParams(window.location.search).get("filter");
+    if (requestedFilter === "vagos" || requestedFilter === "ocupados" || requestedFilter === "venda" || requestedFilter === "proximos" || requestedFilter === "atencao" || requestedFilter === "vendidos") setFilter(requestedFilter);
+  }, []);
+  useEffect(() => {
     let active = true;
     async function loadBuildingPhotos() {
       const unitMap = new Map<string, string>();

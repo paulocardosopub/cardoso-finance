@@ -37,7 +37,7 @@ type PortfolioContextValue = {
   notifications: NotificationItem[];
   loading: boolean;
   error: string;
-  refresh: () => Promise<void>;
+  refresh: (options?: { silent?: boolean }) => Promise<void>;
   switchOrganization: (organizationId: string) => void;
   setPrimaryOrganization: (organizationId: string) => Promise<{ ok: boolean; message?: string }>;
   acceptInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>;
@@ -156,12 +156,12 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { silent?: boolean }) => {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !session) { setValue((current) => ({ ...current, loading: false })); return; }
-    // Clear the previous organization's role and data before any request so a
-    // fast refresh can never render a stale administrator menu or records.
-    setValue((current) => ({ ...current, organizationId: null, organizationName: "Cardoso Finance", holdings: [], previewMembers: [], role: "viewer", actualRole: "viewer", memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" }));
+    // Interactive view changes clear the previous role before loading. Background
+    // refreshes keep the current screen and scroll position stable.
+    if (!options?.silent) setValue((current) => ({ ...current, organizationId: null, organizationName: "Cardoso Finance", holdings: [], previewMembers: [], role: "viewer", actualRole: "viewer", memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" }));
     const membershipsResult = await supabase.from("organization_members").select("organization_id, role, joined_at, is_primary").eq("user_id", session.user.id).order("joined_at", { ascending: true });
     if (membershipsResult.error) { setValue((current) => ({ ...current, loading: false, error: membershipsResult.error.message })); return; }
     const profile = await supabase.from("profiles").select("full_name, phone, avatar_url").eq("id", session.user.id).maybeSingle();
@@ -185,7 +185,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const organizationId = selectedMembership.id;
     const actualRole = selectedMembership.role;
     const previewAllowed = actualRole === "owner" || actualRole === "admin" || actualRole === "manager";
-    const previewMembersResult = previewAllowed ? await supabase.rpc("list_organization_members", { target_org: organizationId }) : null;
+    let previewMembersResult = previewAllowed ? await supabase.rpc("list_preview_members", { target_org: organizationId }) : null;
+    // Keep older deployments compatible while the idempotent preview function
+    // is being rolled out to the database.
+    if (previewMembersResult?.error) previewMembersResult = await supabase.rpc("list_organization_members", { target_org: organizationId });
     const previewMembers = !previewMembersResult?.error ? ((previewMembersResult?.data ?? []) as Array<Record<string, unknown>>).map((member) => ({ memberId: String(member.member_id), userId: member.user_id ? String(member.user_id) : null, contactId: member.contact_id ? String(member.contact_id) : null, name: String(member.full_name ?? "Membro"), role: roleMap[String(member.role)] ?? "viewer", isPlaceholder: Boolean(member.is_placeholder) })) : [];
     const ownMember = previewMembers.find((member) => member.userId === session.user.id);
     const selectedMember = previewAllowed ? previewMembers.find((member) => previewRef(member) === viewAsMemberId || member.userId === viewAsMemberId || member.memberId === viewAsMemberId) : null;
@@ -306,10 +309,12 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const supabase = createSupabaseBrowserClient();
     if (!supabase) return;
     const channel = supabase.channel(`cardoso-sync-${value.organizationId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "lease_payments", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh(); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "revenues", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "lease_payments", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "revenues", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "property_units", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "leases", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
       .subscribe();
-    const interval = window.setInterval(() => { void refresh(); }, 30000);
+    const interval = window.setInterval(() => { void refresh({ silent: true }); }, 30000);
     return () => { window.clearInterval(interval); void supabase.removeChannel(channel); };
   }, [refresh, session, value.organizationId]);
   useEffect(() => {
@@ -370,5 +375,3 @@ export function usePortfolio() {
   if (!context) throw new Error("usePortfolio precisa estar dentro de PortfolioProvider");
   return context;
 }
-
-
