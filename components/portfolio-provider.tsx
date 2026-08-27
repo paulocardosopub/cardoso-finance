@@ -22,7 +22,7 @@ type PortfolioContextValue = {
   actualRole: MemberRole;
   viewAs: "actual" | "viewer" | "employee";
   viewAsMemberId: string | null;
-  previewMembers: Array<{ userId: string; name: string; role: MemberRole }>;
+  previewMembers: Array<{ memberId: string; userId: string | null; contactId: string | null; name: string; role: MemberRole; isPlaceholder: boolean }>;
   memberVisibility: MemberVisibility;
   memberSummary: MemberSummary;
   ownershipSummary: OwnershipSummary[];
@@ -52,6 +52,7 @@ const PortfolioContext = createContext<PortfolioContextValue | null>(null);
 
 const statusMap: Record<string, PropertyUnit["status"]> = { rented: "alugado", vacant: "vago", maintenance: "manutencao", service: "servico", negotiation: "negociacao", for_sale: "venda", sold: "vendido" };
 const roleMap: Record<string, MemberRole> = { owner: "owner", admin: "admin", manager: "manager", employee: "employee", viewer: "viewer" };
+const previewRef = (member: { memberId: string; userId: string | null; contactId: string | null }) => member.userId ? `user:${member.userId}` : member.contactId ? `contact:${member.contactId}` : member.memberId;
 
 function displayName(session: Session | null, profileName?: string) {
   const metadata = session?.user.user_metadata as Record<string, unknown> | undefined;
@@ -185,9 +186,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const actualRole = selectedMembership.role;
     const previewAllowed = actualRole === "owner" || actualRole === "admin" || actualRole === "manager";
     const previewMembersResult = previewAllowed ? await supabase.rpc("list_organization_members", { target_org: organizationId }) : null;
-    const previewMembers = !previewMembersResult?.error ? ((previewMembersResult?.data ?? []) as Array<Record<string, unknown>>).filter((member) => member.user_id).map((member) => ({ userId: String(member.user_id), name: String(member.full_name ?? "Membro"), role: roleMap[String(member.role)] ?? "viewer" })) : [];
+    const previewMembers = !previewMembersResult?.error ? ((previewMembersResult?.data ?? []) as Array<Record<string, unknown>>).map((member) => ({ memberId: String(member.member_id), userId: member.user_id ? String(member.user_id) : null, contactId: member.contact_id ? String(member.contact_id) : null, name: String(member.full_name ?? "Membro"), role: roleMap[String(member.role)] ?? "viewer", isPlaceholder: Boolean(member.is_placeholder) })) : [];
     const ownMember = previewMembers.find((member) => member.userId === session.user.id);
-    const selectedPreviewMemberId = viewAs === "viewer" ? (previewAllowed ? (previewMembers.some((member) => member.userId === viewAsMemberId) ? viewAsMemberId : (ownMember?.userId ?? previewMembers[0]?.userId ?? null)) : session.user.id) : null;
+    const selectedMember = previewAllowed ? previewMembers.find((member) => previewRef(member) === viewAsMemberId || member.userId === viewAsMemberId || member.memberId === viewAsMemberId) : null;
+    const selectedPreviewMemberId = viewAs === "viewer" ? (previewAllowed ? (selectedMember ? previewRef(selectedMember) : (ownMember ? previewRef(ownMember) : previewMembers[0] ? previewRef(previewMembers[0]) : null)) : session.user.id) : null;
     const effectiveRole: MemberRole = previewAllowed && viewAs === "viewer" ? "viewer" : previewAllowed && viewAs === "employee" ? "employee" : actualRole;
     const invitationsResult = selectedMembership.role === "viewer" ? null : await supabase.rpc("list_my_invitations");
     const pendingInvitations = invitationsResult && !invitationsResult.error ? mapPendingInvitations(invitationsResult.data) : [];
@@ -201,7 +203,12 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     if (effectiveRole === "viewer") {
-      const memberResult = selectedPreviewMemberId ? await supabase.rpc("get_member_portfolio", { target_org: organizationId, target_member_user: selectedPreviewMemberId }) : await supabase.rpc("get_member_portfolio", { target_org: organizationId });
+      const previewing = previewAllowed && viewAs === "viewer" && selectedMember;
+      const memberResult = previewing && selectedMember?.isPlaceholder && selectedMember.contactId
+        ? await supabase.rpc("get_contact_member_portfolio", { target_org: organizationId, target_member_contact: selectedMember.contactId })
+        : previewing && selectedMember?.userId
+          ? await supabase.rpc("get_member_portfolio", { target_org: organizationId, target_member_user: selectedMember.userId })
+          : await supabase.rpc("get_member_portfolio", { target_org: organizationId });
       if (memberResult.error) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, role: "viewer", loading: false, error: memberResult.error.message })); return; }
       const memberData = (memberResult.data ?? {}) as Record<string, unknown>;
       const summary = (memberData.summary ?? {}) as Record<string, unknown>;
@@ -294,6 +301,17 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   }, [activeOrganizationId, session, viewAs, viewAsMemberId]);
 
   useEffect(() => { if (!sessionResolved) return; if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session, sessionResolved]);
+  useEffect(() => {
+    if (!session || !value.organizationId) return;
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    const channel = supabase.channel(`cardoso-sync-${value.organizationId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "lease_payments", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "revenues", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh(); })
+      .subscribe();
+    const interval = window.setInterval(() => { void refresh(); }, 30000);
+    return () => { window.clearInterval(interval); void supabase.removeChannel(channel); };
+  }, [refresh, session, value.organizationId]);
   useEffect(() => {
     if (!session) return;
     const interval = window.setInterval(async () => {
