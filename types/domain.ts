@@ -19,6 +19,14 @@ export type MemberSummary = {
   totalUnits: number;
   totalRent: number;
   ownershipPercentage: number;
+  /** Rent already confirmed as paid for the selected month. */
+  paidRent?: number;
+  /** Net monthly result after individual and holding expenses. */
+  netRevenue?: number;
+  /** Expected rent entitlement for the selected month. */
+  expectedRent?: number;
+  monthlyExpenses?: number;
+  individualCredits?: number;
 };
 
 export type OwnershipSummary = { name: string; percentage: number };

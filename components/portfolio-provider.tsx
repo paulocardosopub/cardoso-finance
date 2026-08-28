@@ -7,6 +7,7 @@ import type { BankAccount, Building, DistributionRecord, ExpenseRecord, LeasePay
 import { sortBuildings } from "@/lib/building-order";
 import { defaultMemberVisibility } from "@/lib/member-access";
 import { unitsMonthlyRent } from "@/lib/rent";
+import { currentMonthKey } from "@/lib/month";
 
 type PortfolioContextValue = {
   organizationId: string | null;
@@ -223,8 +224,25 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       const memberVisibility = visibilityFromRow((memberData.settings ?? {}) as Record<string, unknown>);
       const totalRent = Number(summary.totalRent ?? 0);
       const grossRent = Number(summary.grossRent ?? totalRent);
-      const memberSummary = { totalValue: Number(summary.totalValue ?? 0), holdingTotalValue: Number(summary.holdingTotalValue ?? 0), totalBuildings: Number(summary.totalBuildings ?? 0), totalUnits: Number(summary.totalUnits ?? 0), totalRent, ownershipPercentage: Number(summary.ownershipPercentage ?? 0) };
-      const rentFactor = grossRent !== 0 ? totalRent / grossRent : 0;
+      const paidSummaryResult = await supabase.rpc("get_member_paid_revenue_summary", {
+        target_org: organizationId,
+        target_competence: `${currentMonthKey()}-01`,
+        target_member_user: previewing && selectedMember?.userId ? selectedMember.userId : null,
+        target_member_contact: previewing && selectedMember?.contactId ? selectedMember.contactId : null,
+      });
+      const paidSummary = (paidSummaryResult.data ?? {}) as Record<string, unknown>;
+      const paidRent = Number(paidSummary.paidRent ?? 0);
+      const expectedRent = Number(paidSummary.expectedRent ?? grossRent);
+      const individualCredits = Number(paidSummary.individualCredits ?? 0);
+      const ownExpenses = Number(paidSummary.ownExpenses ?? 0);
+      const holdingExpenses = Number(paidSummary.holdingExpenses ?? 0);
+      const netRevenue = paidSummaryResult.error
+        ? totalRent
+        : Number(paidSummary.netRevenue ?? (paidRent + individualCredits - ownExpenses - holdingExpenses));
+      const memberSummary = { totalValue: Number(summary.totalValue ?? 0), holdingTotalValue: Number(summary.holdingTotalValue ?? 0), totalBuildings: Number(summary.totalBuildings ?? 0), totalUnits: Number(summary.totalUnits ?? 0), totalRent: netRevenue, paidRent, netRevenue, expectedRent, monthlyExpenses: ownExpenses + holdingExpenses, individualCredits, ownershipPercentage: Number(summary.ownershipPercentage ?? 0) };
+      // get_member_portfolio already returns each unit's proportional rent.
+      // Keep it intact so the member's property list is not scaled by expenses.
+      const rentFactor = 1;
       const ownershipSummary = ((memberData.ownership ?? []) as Array<Record<string, unknown>>).map((item) => ({ name: String(item.name ?? "Membro"), percentage: Number(item.percentage ?? 0) }));
       setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "viewer", actualRole, viewAs, viewAsMemberId: selectedPreviewMemberId, previewMembers, memberVisibility, memberSummary, ownershipSummary, buildings: mapMemberBuildings((memberData.buildings ?? []) as Array<Record<string, unknown>>, rentFactor), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
       return;
