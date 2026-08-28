@@ -73,6 +73,11 @@ export default function DespesasPage() {
   const [form, setForm] = useState({ description: "", value: "", kind: "recurring" as ExpenseKind, category: "Operacional", responsibleUserIds: [] as string[], buildingId: "", date: today() });
 
   useEffect(() => {
+    const requestedMonth = new URLSearchParams(window.location.search).get("month");
+    if (requestedMonth && /^\d{4}-\d{2}$/.test(requestedMonth)) setSelectedMonth(requestedMonth);
+  }, []);
+
+  useEffect(() => {
     if (!organizationId) return;
     const supabase = createSupabaseBrowserClient();
     if (!supabase) return;
