@@ -20,7 +20,7 @@ type VariableExpense = {
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function DespesasVariaveisPage() {
-  const { organizationId, role, actualRole, buildings, loading } = usePortfolio();
+  const { organizationId, role, actualRole, viewAsMemberId, buildings, loading } = usePortfolio();
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
   const [expenses, setExpenses] = useState<VariableExpense[]>([]);
   const [form, setForm] = useState({ description: "", value: "", category: "Administração de imóveis", buildingId: "", date: today() });
@@ -36,17 +36,18 @@ export default function DespesasVariaveisPage() {
     setLoadingExpenses(true);
     const user = (await supabase.auth.getUser()).data.user;
     if (!user) { setLoadingExpenses(false); return; }
+    const selectedEmployeeId = actualRole !== "employee" && viewAsMemberId?.startsWith("user:") ? viewAsMemberId.slice(5) : null;
     const result = await supabase.from("expenses")
       .select("id, description, category, value, expense_date, building_id, created_role")
       .eq("organization_id", organizationId)
-      .eq("created_by", user.id)
+      .eq("created_by", selectedEmployeeId ?? user.id)
       .eq("created_role", "employee")
       .eq("expense_kind", "one_time")
       .order("expense_date", { ascending: false });
     if (result.error) setMessage("Não foi possível carregar suas despesas variáveis.");
     else setExpenses((result.data ?? []) as VariableExpense[]);
     setLoadingExpenses(false);
-  }, [organizationId]);
+  }, [actualRole, organizationId, viewAsMemberId]);
 
   useEffect(() => { void loadExpenses(); }, [loadExpenses]);
 
@@ -55,7 +56,8 @@ export default function DespesasVariaveisPage() {
 
   async function createExpense(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!organizationId || role !== "employee" || actualRole !== "employee") { setMessage("Apenas a funcionária pode lançar despesas variáveis."); return; }
+    const selectedEmployeeId = actualRole !== "employee" && viewAsMemberId?.startsWith("user:") ? viewAsMemberId.slice(5) : null;
+    if (!organizationId || role !== "employee" || (actualRole !== "employee" && !selectedEmployeeId)) { setMessage("Selecione uma funcionária para lançar esta despesa."); return; }
     const value = Number(form.value.replace(",", "."));
     if (!form.description.trim() || !Number.isFinite(value) || value <= 0 || !form.date) { setMessage("Informe descrição, valor e data da despesa."); return; }
     const supabase = createSupabaseBrowserClient();
@@ -68,6 +70,7 @@ export default function DespesasVariaveisPage() {
       expense_date_value: form.date,
       expense_category: form.category.trim() || "Administração de imóveis",
       expense_building: form.buildingId || null,
+      target_actor: selectedEmployeeId,
     });
     if (result.error) setMessage(result.error.message === "not_authorized" ? "Seu perfil não pode lançar esta despesa." : "Não foi possível criar a despesa variável.");
     else {
