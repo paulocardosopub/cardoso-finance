@@ -80,7 +80,7 @@ export default function DashboardPage() {
 type RecentActivityProps = {
   organizationId: string;
   userName: string;
-  previewMembers: Array<{ memberId: string; userId: string | null; contactId: string | null; name: string }>;
+  previewMembers: Array<{ memberId: string; userId: string | null; contactId: string | null; name: string; role: string }>;
 };
 
 type RecentActivityRow = { id: string; event_type: string; amount: number; description: string; occurred_at: string; created_by: string | null; source_payment_id: string | null };
@@ -101,7 +101,7 @@ function RecentActivity({ organizationId, userName, previewMembers }: RecentActi
     return () => { active = false; window.clearInterval(timer); };
   }, [organizationId]);
 
-  const actorName = (createdBy: string | null) => previewMembers.find((member) => member.userId === createdBy)?.name ?? (createdBy ? "Usuário da holding" : userName);
+  const actorName = (createdBy: string | null) => { const member = previewMembers.find((item) => item.userId === createdBy); if (!member) return createdBy ? "Usuário da holding" : userName; return `${member.role === "employee" ? "Funcionária" : member.role === "owner" || member.role === "admin" ? "Administrador" : "Gestor"} ${member.name}`; };
   return <div className="panel"><div className="panel-heading"><div><h2>Atividade recente</h2><p>Confirmações e estornos registrados na holding</p></div><Receipt size={17} color="#80e2b0" /></div>{rows.length ? <div className="activity-list">{rows.map((row) => { const credit = row.event_type === "credit"; const action = row.source_payment_id ? (credit ? "confirmou pagamento" : "desfez pagamento") : (credit ? "registrou crédito" : "registrou débito"); return <div className="activity-item" key={row.id}><h3>{new Date(row.occurred_at).toLocaleDateString("pt-BR")} · {actorName(row.created_by)} {action}</h3><p>{row.description}</p><strong className={credit ? "positive" : "negative"}>{credit ? "+" : "−"}{brl(Number(row.amount || 0))}</strong><time>{new Date(row.occurred_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time></div>; })}</div> : <div className="empty-state" style={{ minHeight: 120 }}><Receipt size={28} /><h3>Nenhuma atividade registrada</h3><p>As confirmações de pagamentos e outros lançamentos aparecerão aqui.</p></div>}</div>;
 }
 
