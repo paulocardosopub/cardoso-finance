@@ -35,7 +35,24 @@ export default function DashboardPage() {
   const { buildings, notifications, leasePayments, expenses, loading, organizationId, userName, bankBalance, role, actualRole, viewAsMemberId, previewMembers, memberVisibility, memberSummary, ownershipSummary, refresh } = usePortfolio();
   const [welcomeIndex, setWelcomeIndex] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
+  const [historicalMonthlyExpected, setHistoricalMonthlyExpected] = useState<number | null>(null);
+  const [historicalExpectedLoading, setHistoricalExpectedLoading] = useState(true);
   useEffect(() => { setWelcomeIndex(Math.floor(Math.random() * welcomeMessages.length)); }, []);
+  useEffect(() => {
+    let active = true;
+    if (!organizationId) { setHistoricalMonthlyExpected(null); setHistoricalExpectedLoading(false); return () => { active = false; }; }
+    if (!isRentalMonthAvailable(selectedMonth)) { setHistoricalMonthlyExpected(0); setHistoricalExpectedLoading(false); return () => { active = false; }; }
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) { setHistoricalMonthlyExpected(null); setHistoricalExpectedLoading(false); return () => { active = false; }; }
+    setHistoricalExpectedLoading(true);
+    void supabase.rpc("get_holding_evolution", { target_org: organizationId, target_start_month: `${selectedMonth}-01`, target_month_count: 1 }).then(({ data, error }) => {
+      if (!active) return;
+      const value = Number((data as { months?: Array<{ monthlyIncome?: number }> } | null)?.months?.[0]?.monthlyIncome);
+      setHistoricalMonthlyExpected(!error && Number.isFinite(value) ? value : null);
+      setHistoricalExpectedLoading(false);
+    });
+    return () => { active = false; };
+  }, [organizationId, selectedMonth]);
   const activeBuildings = sortBuildingsForDisplay(buildings.filter((building) => building.status !== "vendido"));
   const totalValue = activeBuildings.reduce((total, building) => total + building.value, 0);
   const occupied = activeBuildings.reduce((total, building) => total + building.occupied, 0);
@@ -45,15 +62,16 @@ export default function DashboardPage() {
   const adjustments = notifications.filter((item) => item.type === "rent_adjustment").length;
   const currentMonth = selectedMonth;
   const monthPayments = leasePayments.filter((item) => item.competence.startsWith(selectedMonth));
-  const monthlyExpected = isRentalMonthAvailable(selectedMonth) ? activeBuildings.flatMap((building) => building.unitsData ?? []).reduce((sum, unit) => sum + (unit.lease && unit.rent > 0 ? unit.rent * (unit.quantity ?? 1) : 0), 0) : 0;
+  const fallbackMonthlyExpected = isRentalMonthAvailable(selectedMonth) ? activeBuildings.flatMap((building) => building.unitsData ?? []).reduce((sum, unit) => sum + (unit.lease && unit.rent > 0 ? unit.rent * (unit.quantity ?? 1) : 0), 0) : 0;
+  const monthlyExpected = historicalMonthlyExpected ?? fallbackMonthlyExpected;
   const monthlyPaid = isRentalMonthAvailable(selectedMonth) ? monthPayments.filter((payment) => payment.status === "paid" || payment.receivedAmount > 0).reduce((sum, payment) => sum + (payment.netAmount || payment.receivedAmount || 0), 0) : 0;
   const selectedMonthlyExpenses = expenses.filter((expense) => expense.expense_kind !== "one_time" || expense.expense_date?.startsWith(selectedMonth)).reduce((sum, expense) => sum + Number(expense.value || 0), 0);
   const selectedMonthlyProfit = monthlyPaid - selectedMonthlyExpenses;
-  const unpaidBuildings = activeBuildings.filter((building) => (building.unitsData ?? []).some((unit) => {
+  const unpaidUnits = activeBuildings.flatMap((building) => building.unitsData ?? []).filter((unit) => {
     if (!unit.lease || unit.rent <= 0) return false;
     const payment = monthPayments.find((item) => item.leaseId === unit.lease?.id);
     return !payment || (payment.status !== "paid" && payment.status !== "waived" && payment.receivedAmount < payment.expectedAmount);
-  }));
+  });
   const rentOpen = activeBuildings.flatMap((building) => building.unitsData ?? []).filter((unit) => {
     if (!isRentalMonthAvailable(currentMonth)) return false;
     if (!unit.lease || unit.rent <= 0) return false;
@@ -67,7 +85,7 @@ export default function DashboardPage() {
   if (role === "viewer") return <MemberDashboard buildings={activeBuildings} organizationId={organizationId} userName={userName} viewedMemberName={actualRole !== "viewer" ? previewMembers.find((member) => member.userId === viewAsMemberId || `user:${member.userId}` === viewAsMemberId || `contact:${member.contactId}` === viewAsMemberId || member.memberId === viewAsMemberId)?.name : undefined} visibility={memberVisibility} summary={memberSummary} ownership={ownershipSummary} />;
   return <div className="content">
     <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Carteira sincronizada</div><h1>{welcomeMessages[welcomeIndex].replace("{name}", userName)}</h1><p className="subtitle">Dados reais da sua organização, com patrimônio baseado exclusivamente em AVALIAÇÃO. Mês de referência: {monthLabel(selectedMonth)}.</p></div><div className="page-heading-actions"><div className="month-navigator"><button type="button" className="icon-btn" onClick={() => setSelectedMonth((month) => shiftMonth(month, -1))} aria-label="Mês anterior"><ChevronLeft size={16} /></button><CalendarDays size={15} /><strong>{monthLabel(selectedMonth)}</strong><button type="button" className="icon-btn" onClick={() => setSelectedMonth((month) => shiftMonth(month, 1))} aria-label="Próximo mês"><ChevronRight size={16} /></button></div><Link href="/imoveis" className="button button-primary"><Plus size={15} /><span>Gerenciar imóveis</span></Link></div></div>
-    <section className="metrics"><Metric href="/patrimonio" icon={<CircleDollarSign size={15} />} label="Patrimônio imobiliário" value={compactBrl(totalValue)} foot={`${buildings.length} prédios organizados`} positive /><Metric href={`/imoveis?month=${selectedMonth}`} icon={<ArrowUpRight size={15} />} label="Aluguéis mensais esperados" value={brl(monthlyExpected)} foot={`Previstos em ${monthLabel(selectedMonth)}`} positive /><Metric href={`/imoveis?month=${selectedMonth}`} icon={<ArrowUpRight size={15} />} label={`Aluguéis mensais atuais (${monthLabel(selectedMonth)})`} value={brl(monthlyPaid)} foot={`Recebidos em ${monthLabel(selectedMonth)}`} positive /><Metric href={`/imoveis?filter=nao-pagos&month=${selectedMonth}`} icon={<Receipt size={15} />} label="Unidades que ainda não pagaram esse mês" value={String(unpaidBuildings.length)} foot={`Aluguel registrado, sem confirmação em ${monthLabel(selectedMonth)}`} positive={unpaidBuildings.length === 0} /><Metric href={`/despesas?month=${selectedMonth}`} icon={<Receipt size={15} />} label="Despesas mensais" value={brl(selectedMonthlyExpenses)} foot={`Saldo após despesas: ${brl(selectedMonthlyProfit)}`} /><Metric href={`/imoveis?filter=vagos&month=${selectedMonth}`} icon={<Landmark size={15} />} label="Ocupação" value={`${occupancy}%`} foot={`${occupied} de ${units} unidades`} positive /><Metric href="/financeiro" icon={<WalletCards size={15} />} label="Saldo bancário" value={brl(bankBalance)} foot="Após aluguéis, despesas e transferências" positive={bankBalance >= 0} /></section>
+    <section className="metrics"><Metric href="/patrimonio" icon={<CircleDollarSign size={15} />} label="Patrimônio imobiliário" value={compactBrl(totalValue)} foot={`${buildings.length} prédios organizados`} positive /><Metric href={`/imoveis?month=${selectedMonth}`} icon={<ArrowUpRight size={15} />} label="Aluguéis mensais esperados" value={historicalExpectedLoading ? "—" : brl(monthlyExpected)} foot={`Previstos em ${monthLabel(selectedMonth)}`} positive /><Metric href={`/imoveis?month=${selectedMonth}`} icon={<ArrowUpRight size={15} />} label={`Aluguéis mensais atuais (${monthLabel(selectedMonth)})`} value={brl(monthlyPaid)} foot={`Recebidos em ${monthLabel(selectedMonth)}`} positive /><Metric href={`/imoveis?filter=nao-pagos&month=${selectedMonth}`} icon={<Receipt size={15} />} label="Unidades que ainda não pagaram esse mês" value={String(unpaidUnits.length)} foot={`Aluguel registrado, sem confirmação em ${monthLabel(selectedMonth)}`} positive={unpaidUnits.length === 0} /><Metric href={`/despesas?month=${selectedMonth}`} icon={<Receipt size={15} />} label="Despesas mensais" value={brl(selectedMonthlyExpenses)} foot={`Saldo após despesas: ${brl(selectedMonthlyProfit)}`} /><Metric href={`/imoveis?filter=vagos&month=${selectedMonth}`} icon={<Landmark size={15} />} label="Ocupação" value={`${occupancy}%`} foot={`${occupied} de ${units} unidades`} positive /><Metric href="/financeiro" icon={<WalletCards size={15} />} label="Saldo bancário" value={brl(bankBalance)} foot="Após aluguéis, despesas e transferências" positive={bankBalance >= 0} /></section>
     <section className="dashboard-grid">
       <div className="panel"><div className="panel-heading"><div><h2>Patrimônio por grupo</h2><p>Valores atuais gravados no banco</p></div><button className="icon-btn" aria-label="Mais opções"><MoreHorizontal size={17} /></button></div><div className="legend"><span><i /> Avaliação</span></div><WealthChart buildings={activeBuildings} /></div>
       <div className="panel"><div className="panel-heading"><div><h2>Alertas</h2><p>Contratos, reajustes e recebimentos</p></div><BellRing size={17} color="#80e2b0" /></div><div className="payment-line"><span>Contratos terminando<small>Próximos 90 dias</small></span><strong>{ending}</strong></div><div className="payment-line"><span>Reajustes próximos<small>Próximos 60 dias</small></span><strong>{adjustments}</strong></div><Link href="/alugueis" className="payment-line"><span>Aluguéis em aberto<small>Cobrar neste mês</small></span><strong className={rentOpen ? "negative" : "positive"}>{rentOpen}</strong></Link><div className="empty-state" style={{ minHeight: 100 }}>{notifications.length ? notifications.slice(0, 3).map((item) => <div key={item.id} className="activity-item" style={{ width: "100%" }}><h3>{item.title}</h3><p>{item.message}</p></div>) : <p>{rentOpen ? "Há recebimentos pendentes. Veja a aba Aluguéis para cobrar." : "Nenhum alerta financeiro pendente."}</p>}</div></div>
