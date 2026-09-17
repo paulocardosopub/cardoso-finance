@@ -98,12 +98,12 @@ begin
     impact := (case when new_status_text in ('rented','for_sale') then new_rent_value*qty else 0 end)
             - (case when old_status_text in ('rented','for_sale') then old_rent_value*greatest(coalesce(old.quantity,1),1) else 0 end);
     insert into public.unit_evolution_history (organization_id, building_id, unit_id, event_type, occurred_at, created_by, old_status, new_status, old_rent, new_rent, monthly_impact, metadata)
-    values (new.organization_id, new.building_id, new.id, 'status_changed', timezone('utc', now()), auth.uid(), old_status_text, new_status_text, old.potential_rent, new.potential_rent, impact, jsonb_build_object('code',new.code));
+    values (new.organization_id, new.building_id, new.id, 'status_changed', timezone('utc', now()), auth.uid(), old_status_text, new_status_text, old.potential_rent, new.potential_rent, impact, jsonb_build_object('code',new.code,'quantity',new.quantity));
   end if;
   if old.potential_rent is distinct from new.potential_rent then
     insert into public.unit_evolution_history (organization_id, building_id, unit_id, event_type, occurred_at, created_by, old_status, new_status, old_rent, new_rent, monthly_impact, metadata)
     values (new.organization_id, new.building_id, new.id, 'rent_changed', timezone('utc', now()), auth.uid(), old_status_text, new_status_text, old.potential_rent, new.potential_rent,
-      case when new_status_text in ('rented','for_sale') then (new_rent_value-old_rent_value)*qty else 0 end, jsonb_build_object('code',new.code));
+      case when new_status_text in ('rented','for_sale') then (new_rent_value-old_rent_value)*qty else 0 end, jsonb_build_object('code',new.code,'quantity',new.quantity));
   end if;
   return new;
 end;
@@ -189,7 +189,7 @@ begin
   first_month := coalesce(date_trunc('month', target_start_month)::date, (date_trunc('month', current_date)::date - ((count_months-1) * interval '1 month'))::date);
   is_manager := public.is_org_member(target_org, 'manager');
 
-  select coalesce(jsonb_agg(jsonb_build_object('month',m.month,'totalUnits',m.total_units,'occupiedUnits',m.occupied_units,'vacantUnits',m.vacant_units,'occupancyRate',m.occupancy_rate,'monthlyIncome',m.monthly_income,'newRentalIncome',m.new_rental_income,'rentAdjustmentIncome',m.rent_adjustment_income,'incomeChangePercent',m.income_change_percent) order by m.month_start), '[]'::jsonb)
+  select coalesce(jsonb_agg(jsonb_build_object('month',m.month,'totalUnits',m.total_units,'occupiedUnits',m.occupied_units,'vacantUnits',m.vacant_units,'occupancyRate',m.occupancy_rate,'monthlyIncome',m.monthly_income,'newRentals',m.new_rentals,'vacatedUnits',m.vacated_units,'newRentalIncome',m.new_rental_income,'rentAdjustmentIncome',m.rent_adjustment_income,'incomeChangePercent',m.income_change_percent) order by m.month_start), '[]'::jsonb)
     into month_values
   from (
     with month_series as (
@@ -209,6 +209,8 @@ begin
       group by ms.month_start
     ), monthly_enriched as (
       select mv.month_start,to_char(mv.month_start,'YYYY-MM') as month,mv.total_units,mv.occupied_units,mv.vacant_units,round(case when mv.total_units=0 then 0 else mv.occupied_units::numeric/mv.total_units*100 end,2) as occupancy_rate,mv.monthly_income,
+        case when mv.month_start < date '2026-08-01' then 0 else coalesce((select sum(coalesce((h.metadata->>'quantity')::numeric,1)) from public.unit_evolution_history h where h.organization_id=target_org and h.occurred_at >= mv.month_start and h.occurred_at < mv.month_start + interval '1 month' and h.event_type in ('lease_created','status_changed','lease_status_changed') and h.new_status='rented' and h.monthly_impact > 0),0)::integer end as new_rentals,
+        case when mv.month_start < date '2026-08-01' then 0 else coalesce((select sum(coalesce((h.metadata->>'quantity')::numeric,1)) from public.unit_evolution_history h where h.organization_id=target_org and h.occurred_at >= mv.month_start and h.occurred_at < mv.month_start + interval '1 month' and h.event_type in ('status_changed','lease_status_changed') and h.new_status='vacant' and h.old_status='rented'),0)::integer end as vacated_units,
         case when mv.month_start < date '2026-08-01' then 0::numeric else coalesce((select sum(h.monthly_impact) from public.unit_evolution_history h where h.organization_id=target_org and h.occurred_at >= mv.month_start and h.occurred_at < mv.month_start + interval '1 month' and h.event_type in ('lease_created','status_changed','lease_status_changed') and h.monthly_impact > 0),0)::numeric(18,2) end as new_rental_income,
         case when mv.month_start < date '2026-08-01' then 0::numeric else coalesce((select sum(h.monthly_impact) from public.unit_evolution_history h where h.organization_id=target_org and h.occurred_at >= mv.month_start and h.occurred_at < mv.month_start + interval '1 month' and h.event_type='rent_changed' and h.monthly_impact > 0),0)::numeric(18,2) end as rent_adjustment_income
       from monthly_values mv
@@ -218,7 +220,7 @@ begin
   ) m;
 
   select coalesce(jsonb_agg(jsonb_build_object(
-      'id',h.id,'eventType',h.event_type,'occurredAt',h.occurred_at,'buildingName',coalesce(a.name,'Imóvel'),'unitCode',u.code,
+      'id',h.id,'eventType',h.event_type,'occurredAt',h.occurred_at,'buildingName',coalesce(a.name,'Imóvel'),'unitCode',coalesce(u.code,h.metadata->>'code'),
       'oldStatus',h.old_status,'newStatus',h.new_status,'oldRent',h.old_rent,'newRent',h.new_rent,'oldTenantName',h.old_tenant_name,'newTenantName',h.new_tenant_name,
       'monthlyImpact',h.monthly_impact,'responsibleName',case when is_manager then p.full_name else null end
     ) order by h.occurred_at desc), '[]'::jsonb)
