@@ -195,14 +195,14 @@ begin
     with month_series as (
       select generate_series(first_month, first_month + ((count_months-1) * interval '1 month'), interval '1 month')::date as month_start
     ), unit_base as (
-      select u.id,u.organization_id,u.building_id,u.quantity,u.status::text as fallback_status,coalesce(u.potential_rent,0) as fallback_rent
+      select u.id,u.organization_id,u.building_id,u.quantity,u.created_at,u.status::text as fallback_status,coalesce(u.potential_rent,0) as fallback_rent
       from public.property_units u where u.organization_id=target_org
     ), monthly_values as (
       select ms.month_start,
-        coalesce(sum(coalesce(u.quantity,1)),0)::integer as total_units,
-        coalesce(sum(coalesce(u.quantity,1)) filter (where coalesce(status_state.value,u.fallback_status) in ('rented','for_sale')),0)::integer as occupied_units,
-        coalesce(sum(case when coalesce(status_state.value,u.fallback_status) not in ('rented','for_sale') then coalesce(u.quantity,1) else 0 end),0)::integer as vacant_units,
-        case when ms.month_start < date '2026-08-01' then 0::numeric else coalesce(sum(case when coalesce(status_state.value,u.fallback_status) in ('rented','for_sale') then coalesce(rent_state.value,u.fallback_rent) * coalesce(u.quantity,1) else 0 end),0)::numeric(18,2) end as monthly_income
+        coalesce(sum(coalesce(u.quantity,1)) filter (where u.created_at < (ms.month_start + interval '1 month')),0)::integer as total_units,
+        coalesce(sum(coalesce(u.quantity,1)) filter (where u.created_at < (ms.month_start + interval '1 month') and coalesce(status_state.value,u.fallback_status) in ('rented','for_sale')),0)::integer as occupied_units,
+        coalesce(sum(case when u.created_at < (ms.month_start + interval '1 month') and coalesce(status_state.value,u.fallback_status) not in ('rented','for_sale') then coalesce(u.quantity,1) else 0 end),0)::integer as vacant_units,
+        case when ms.month_start < date '2026-08-01' then 0::numeric else coalesce(sum(case when u.created_at < (ms.month_start + interval '1 month') and coalesce(status_state.value,u.fallback_status) in ('rented','for_sale') then coalesce(rent_state.value,u.fallback_rent) * coalesce(u.quantity,1) else 0 end),0)::numeric(18,2) end as monthly_income
       from month_series ms cross join unit_base u
       left join lateral (select h.new_status as value from public.unit_evolution_history h where h.organization_id=target_org and h.unit_id=u.id and h.new_status is not null and h.occurred_at < (ms.month_start + interval '1 month') order by h.occurred_at desc,h.id desc limit 1) status_state on true
       left join lateral (select h.new_rent as value from public.unit_evolution_history h where h.organization_id=target_org and h.unit_id=u.id and h.new_rent is not null and h.occurred_at < (ms.month_start + interval '1 month') order by h.occurred_at desc,h.id desc limit 1) rent_state on true
