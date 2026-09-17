@@ -47,7 +47,7 @@ export function EmployeeDashboard({ buildings, organizationId, userName, refresh
   const active = buildings.filter((building) => building.status !== "vendido");
   const units = active.flatMap((building) => (building.unitsData ?? []).map((unit) => ({ building, unit })));
   const rented = units.filter(({ unit }) => isRented(unit) && leaseActiveInMonth(unit.lease, selectedMonth));
-  const available = units.filter(({ unit }) => !isRented(unit) && unit.status !== "venda" && unit.status !== "vendido");
+  const available = units.filter(({ unit }) => (!isRented(unit) || !leaseActiveInMonth(unit.lease, selectedMonth)) && unit.status !== "venda" && unit.status !== "vendido");
   const forSale = units.filter(({ building, unit }) => isForSale(building) && (unit.status === "venda" || unit.status === "venda_alugado"));
   const rentalMonthAvailable = isRentalMonthAvailable(selectedMonth);
   const openPayments = rentalMonthAvailable ? rented.filter(({ unit }) => !unit.lease?.id || !paidLeaseIds.has(unit.lease.id)) : [];
