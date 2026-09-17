@@ -228,7 +228,7 @@ begin
   left join public.buildings b on b.id=h.building_id
   left join public.assets a on a.id=b.asset_id
   left join public.profiles p on p.id=h.created_by
-  where h.organization_id=target_org and h.occurred_at >= first_month and h.event_type in ('unit_created','unit_deleted','status_changed','rent_changed','lease_created','lease_deleted','lease_status_changed','tenant_changed');
+  where h.organization_id=target_org and h.occurred_at >= first_month and h.occurred_at < first_month + (count_months * interval '1 month') and h.event_type in ('unit_created','unit_deleted','status_changed','rent_changed','lease_created','lease_deleted','lease_status_changed','tenant_changed');
 
   return jsonb_build_object('months',month_values,'events',event_values,'startMonth',first_month,'monthCount',count_months,'rentalStartMonth','2026-08-01');
 end;
