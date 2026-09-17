@@ -16,6 +16,8 @@ type EvolutionMonth = {
   monthlyIncome: number;
   newRentalIncome: number;
   rentAdjustmentIncome: number;
+  newRentals: number;
+  vacatedUnits: number;
   incomeChangePercent: number;
 };
 
@@ -78,7 +80,7 @@ export function HoldingEvolution({ organizationId }: { organizationId: string })
       if (!active) return;
       if (result.error) { setError(result.error.message); setLoading(false); return; }
       const data = (result.data ?? {}) as EvolutionResponse;
-      setMonths((data.months ?? []).map((item) => ({ ...item, totalUnits: Number(item.totalUnits ?? 0), occupiedUnits: Number(item.occupiedUnits ?? 0), vacantUnits: Number(item.vacantUnits ?? 0), occupancyRate: Number(item.occupancyRate ?? 0), monthlyIncome: Number(item.monthlyIncome ?? 0), newRentalIncome: Number(item.newRentalIncome ?? 0), rentAdjustmentIncome: Number(item.rentAdjustmentIncome ?? 0), incomeChangePercent: Number(item.incomeChangePercent ?? 0) })));
+      setMonths((data.months ?? []).map((item) => ({ ...item, totalUnits: Number(item.totalUnits ?? 0), occupiedUnits: Number(item.occupiedUnits ?? 0), vacantUnits: Number(item.vacantUnits ?? 0), occupancyRate: Number(item.occupancyRate ?? 0), monthlyIncome: Number(item.monthlyIncome ?? 0), newRentals: Number(item.newRentals ?? 0), vacatedUnits: Number(item.vacatedUnits ?? 0), newRentalIncome: Number(item.newRentalIncome ?? 0), rentAdjustmentIncome: Number(item.rentAdjustmentIncome ?? 0), incomeChangePercent: Number(item.incomeChangePercent ?? 0) })));
       setEvents((data.events ?? []).map((item) => ({ ...item, monthlyImpact: Number(item.monthlyImpact ?? 0) })));
       setLoading(false);
     };
@@ -95,7 +97,7 @@ export function HoldingEvolution({ organizationId }: { organizationId: string })
   return <section className="panel evolution-panel">
     <div className="panel-heading"><div><h2>Evolução da holding</h2><p>Dados reais por unidade · {monthLabel(months[0].month)} a {monthLabel(months[months.length - 1].month)}</p></div><div className="evolution-period-actions"><button type="button" className="icon-btn" onClick={() => setPeriodStart((month) => shiftMonth(month, -6))} aria-label="Período anterior"><ChevronLeft size={16} /></button><Activity size={17} color="#80e2b0" /><button type="button" className="icon-btn" disabled={periodStart >= shiftMonth(currentMonthKey(), -5)} onClick={() => setPeriodStart((month) => shiftMonth(month, 6))} aria-label="Próximo período"><ChevronRight size={16} /></button></div></div>
     <div className="evolution-metrics">
-      <div className="evolution-stat"><span><Building2 size={14} /> Unidades</span><strong>{current.totalUnits}</strong><small>{current.occupiedUnits} ocupadas · {current.vacantUnits} livres</small></div>
+      <div className="evolution-stat"><span><Building2 size={14} /> Unidades</span><strong>{current.totalUnits}</strong><small>{current.occupiedUnits} ocupadas · {current.vacantUnits} livres · +{current.newRentals} alugadas · −{current.vacatedUnits} desocupadas</small></div>
       <div className="evolution-stat"><span><Home size={14} /> Ocupação</span><strong>{current.occupancyRate.toFixed(1).replace(".", ",")}%</strong><small>Meta acompanhada por mês</small></div>
       <div className="evolution-stat"><span><TrendingUp size={14} /> Aluguel mensal</span><strong>{brl(current.monthlyIncome)}</strong><small className={current.incomeChangePercent >= 0 ? "positive" : "negative"}>{current.incomeChangePercent >= 0 ? "+" : ""}{current.incomeChangePercent.toFixed(1).replace(".", ",")}% vs. mês anterior</small></div>
       <div className="evolution-stat"><span><CheckCircle2 size={14} /> Novos valores</span><strong>{brl(current.newRentalIncome + current.rentAdjustmentIncome)}</strong><small>{brl(current.newRentalIncome)} locações · {brl(current.rentAdjustmentIncome)} reajustes</small></div>
