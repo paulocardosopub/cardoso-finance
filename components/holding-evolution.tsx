@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { Area, AreaChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Activity, BarChart3, Building2, CheckCircle2, Home, TrendingDown, TrendingUp } from "lucide-react";
+import { Activity, BarChart3, Building2, CheckCircle2, ChevronLeft, ChevronRight, Home, TrendingDown, TrendingUp } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { brl, compactBrl } from "@/lib/format";
-import { monthLabel } from "@/lib/month";
+import { currentMonthKey, monthLabel, shiftMonth } from "@/lib/month";
 
 type EvolutionMonth = {
   month: string;
@@ -65,6 +65,7 @@ function eventLabel(event: EvolutionEvent) {
 export function HoldingEvolution({ organizationId }: { organizationId: string }) {
   const [months, setMonths] = useState<EvolutionMonth[]>([]);
   const [events, setEvents] = useState<EvolutionEvent[]>([]);
+  const [periodStart, setPeriodStart] = useState(() => shiftMonth(currentMonthKey(), -5));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -73,7 +74,7 @@ export function HoldingEvolution({ organizationId }: { organizationId: string })
     if (!supabase || !organizationId) return;
     let active = true;
     const load = async () => {
-      const result = await supabase.rpc("get_holding_evolution", { target_org: organizationId, target_month_count: 6 });
+      const result = await supabase.rpc("get_holding_evolution", { target_org: organizationId, target_start_month: `${periodStart}-01`, target_month_count: 6 });
       if (!active) return;
       if (result.error) { setError(result.error.message); setLoading(false); return; }
       const data = (result.data ?? {}) as EvolutionResponse;
@@ -84,7 +85,7 @@ export function HoldingEvolution({ organizationId }: { organizationId: string })
     void load();
     const channel = supabase.channel(`cardoso-evolution-${organizationId}`).on("postgres_changes", { event: "*", schema: "public", table: "unit_evolution_history", filter: `organization_id=eq.${organizationId}` }, () => { void load(); }).subscribe();
     return () => { active = false; void supabase.removeChannel(channel); };
-  }, [organizationId]);
+  }, [organizationId, periodStart]);
 
   if (loading) return <section className="panel evolution-panel"><div className="panel-heading"><div><h2>Evolução da holding</h2><p>Carregando histórico operacional…</p></div><Activity size={17} color="#80e2b0" /></div></section>;
   if (error) return <section className="panel evolution-panel"><div className="panel-heading"><div><h2>Evolução da holding</h2><p>Não foi possível carregar a evolução agora.</p></div><Activity size={17} color="#ff8c8c" /></div><p className="form-error">{error}</p></section>;
@@ -92,7 +93,7 @@ export function HoldingEvolution({ organizationId }: { organizationId: string })
 
   const current = months[months.length - 1];
   return <section className="panel evolution-panel">
-    <div className="panel-heading"><div><h2>Evolução da holding</h2><p>Dados reais por unidade · últimos {months.length} meses</p></div><Activity size={17} color="#80e2b0" /></div>
+    <div className="panel-heading"><div><h2>Evolução da holding</h2><p>Dados reais por unidade · {monthLabel(months[0].month)} a {monthLabel(months[months.length - 1].month)}</p></div><div className="evolution-period-actions"><button type="button" className="icon-btn" onClick={() => setPeriodStart((month) => shiftMonth(month, -6))} aria-label="Período anterior"><ChevronLeft size={16} /></button><Activity size={17} color="#80e2b0" /><button type="button" className="icon-btn" disabled={periodStart >= shiftMonth(currentMonthKey(), -5)} onClick={() => setPeriodStart((month) => shiftMonth(month, 6))} aria-label="Próximo período"><ChevronRight size={16} /></button></div></div>
     <div className="evolution-metrics">
       <div className="evolution-stat"><span><Building2 size={14} /> Unidades</span><strong>{current.totalUnits}</strong><small>{current.occupiedUnits} ocupadas · {current.vacantUnits} livres</small></div>
       <div className="evolution-stat"><span><Home size={14} /> Ocupação</span><strong>{current.occupancyRate.toFixed(1).replace(".", ",")}%</strong><small>Meta acompanhada por mês</small></div>
