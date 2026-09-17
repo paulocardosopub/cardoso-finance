@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { buildingPath } from "@/lib/building-path";
 import { brl } from "@/lib/format";
-import { currentMonthKey, isRentalMonthAvailable, monthLabel, shiftMonth } from "@/lib/month";
+import { currentMonthKey, isRentalMonthAvailable, leaseActiveInMonth, monthLabel, shiftMonth } from "@/lib/month";
 import { captureDeviceLocation } from "@/lib/geolocation";
 import { formatVisitAddress, reverseGeocodeLocation } from "@/lib/reverse-geocode";
 import { uploadPaymentProof } from "@/lib/payment-proof";
@@ -46,7 +46,7 @@ export function EmployeeDashboard({ buildings, organizationId, userName, refresh
   }, [organizationId, selectedMonth]);
   const active = buildings.filter((building) => building.status !== "vendido");
   const units = active.flatMap((building) => (building.unitsData ?? []).map((unit) => ({ building, unit })));
-  const rented = units.filter(({ unit }) => isRented(unit));
+  const rented = units.filter(({ unit }) => isRented(unit) && leaseActiveInMonth(unit.lease, selectedMonth));
   const available = units.filter(({ unit }) => !isRented(unit) && unit.status !== "venda" && unit.status !== "vendido");
   const forSale = units.filter(({ building, unit }) => isForSale(building) && (unit.status === "venda" || unit.status === "venda_alugado"));
   const rentalMonthAvailable = isRentalMonthAvailable(selectedMonth);

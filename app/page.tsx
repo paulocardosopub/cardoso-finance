@@ -12,7 +12,7 @@ import { buildingIsForSale, sortBuildingsForDisplay } from "@/lib/building-order
 import { useEffect, useState } from "react";
 import { PropertyMap, type PropertyMapPin } from "@/components/property-map";
 import { EmployeeDashboard } from "@/components/employee-dashboard";
-import { monthLabel, currentMonthKey, isRentalMonthAvailable, shiftMonth } from "@/lib/month";
+import { monthLabel, currentMonthKey, isRentalMonthAvailable, leaseActiveInMonth, shiftMonth } from "@/lib/month";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { HoldingEvolution } from "@/components/holding-evolution";
 
@@ -61,20 +61,21 @@ export default function DashboardPage() {
   const ending = notifications.filter((item) => item.type === "lease_ending").length;
   const adjustments = notifications.filter((item) => item.type === "rent_adjustment").length;
   const currentMonth = selectedMonth;
-  const monthPayments = leasePayments.filter((item) => item.competence.startsWith(selectedMonth));
-  const fallbackMonthlyExpected = isRentalMonthAvailable(selectedMonth) ? activeBuildings.flatMap((building) => building.unitsData ?? []).reduce((sum, unit) => sum + (unit.lease && unit.rent > 0 ? unit.rent * (unit.quantity ?? 1) : 0), 0) : 0;
+  const monthUnits = activeBuildings.flatMap((building) => building.unitsData ?? []);
+  const monthPayments = leasePayments.filter((item) => item.competence.startsWith(selectedMonth)).filter((item) => monthUnits.some((unit) => unit.lease?.id === item.leaseId && leaseActiveInMonth(unit.lease, selectedMonth)));
+  const fallbackMonthlyExpected = isRentalMonthAvailable(selectedMonth) ? activeBuildings.flatMap((building) => building.unitsData ?? []).reduce((sum, unit) => sum + (leaseActiveInMonth(unit.lease, selectedMonth) && unit.rent > 0 ? unit.rent * (unit.quantity ?? 1) : 0), 0) : 0;
   const monthlyExpected = historicalMonthlyExpected ?? fallbackMonthlyExpected;
   const monthlyPaid = isRentalMonthAvailable(selectedMonth) ? monthPayments.filter((payment) => payment.status === "paid" || payment.receivedAmount > 0).reduce((sum, payment) => sum + (payment.netAmount || payment.receivedAmount || 0), 0) : 0;
   const selectedMonthlyExpenses = expenses.filter((expense) => expense.expense_kind !== "one_time" || expense.expense_date?.startsWith(selectedMonth)).reduce((sum, expense) => sum + Number(expense.value || 0), 0);
   const selectedMonthlyProfit = monthlyPaid - selectedMonthlyExpenses;
   const unpaidUnits = activeBuildings.flatMap((building) => building.unitsData ?? []).filter((unit) => {
-    if (!unit.lease || unit.rent <= 0) return false;
+    if (!leaseActiveInMonth(unit.lease, selectedMonth) || unit.rent <= 0) return false;
     const payment = monthPayments.find((item) => item.leaseId === unit.lease?.id);
     return !payment || (payment.status !== "paid" && payment.status !== "waived" && payment.receivedAmount < payment.expectedAmount);
   });
   const rentOpen = activeBuildings.flatMap((building) => building.unitsData ?? []).filter((unit) => {
     if (!isRentalMonthAvailable(currentMonth)) return false;
-    if (!unit.lease || unit.rent <= 0) return false;
+    if (!leaseActiveInMonth(unit.lease, currentMonth) || unit.rent <= 0) return false;
     const payment = leasePayments.find((item) => item.leaseId === unit.lease?.id && item.competence.startsWith(currentMonth));
     return !payment || (payment.status !== "paid" && payment.status !== "waived" && payment.receivedAmount < payment.expectedAmount);
   }).length;
