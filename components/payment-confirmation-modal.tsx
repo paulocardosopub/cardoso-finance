@@ -30,7 +30,7 @@ export function PaymentConfirmationModal({
 }) {
   return <div className="modal-backdrop"><form className="edit-modal payment-confirmation-modal" onSubmit={onConfirm}>
     <div className="panel-heading"><div><h2>Confirmar pagamento</h2><p>{propertyLabel} · competência de {month}</p></div><button type="button" className="icon-btn" onClick={onCancel} aria-label="Fechar"><X size={16} /></button></div>
-    {message && <p className={message.startsWith("Não") || message.startsWith("Erro") ? "form-error" : "form-success"}>{message}</p>}
+    {message && <p className={message.startsWith("Não") || message.startsWith("Erro") || message.startsWith("Este") ? "form-error" : "form-success"}>{message}</p>}
     <div className="form-grid">
       <label>Data do pagamento<input type="date" value={values.paymentDate} onChange={(event) => onChange({ ...values, paymentDate: event.target.value })} required /></label>
       <label>Valor confirmado <span className="muted">(pode ser maior ou menor)</span><input type="number" min="0.01" step="0.01" value={values.amount} onChange={(event) => onChange({ ...values, amount: event.target.value })} required /></label>
