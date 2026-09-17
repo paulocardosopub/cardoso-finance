@@ -26,6 +26,13 @@ create index if not exists unit_evolution_org_date_idx on public.unit_evolution_
 create index if not exists unit_evolution_unit_date_idx on public.unit_evolution_history(unit_id, occurred_at desc);
 create index if not exists unit_evolution_event_idx on public.unit_evolution_history(organization_id, event_type, occurred_at desc);
 alter table public.unit_evolution_history enable row level security;
+do $$ begin
+  if exists (select 1 from pg_publication where pubname='supabase_realtime')
+     and not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='unit_evolution_history') then
+    execute 'alter publication supabase_realtime add table public.unit_evolution_history';
+  end if;
+exception when undefined_object then null;
+end $$;
 drop policy if exists "unit evolution member read" on public.unit_evolution_history;
 create policy "unit evolution member read" on public.unit_evolution_history for select using (public.is_org_member(organization_id));
 revoke all on public.unit_evolution_history from anon;
