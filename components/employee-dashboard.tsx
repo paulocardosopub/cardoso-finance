@@ -41,8 +41,9 @@ export function EmployeeDashboard({ buildings, organizationId, userName, refresh
     const loadPayments = () => supabase.from("lease_payments").select("lease_id, status, received_amount, expected_amount").eq("organization_id", organizationId).eq("competence", `${selectedMonth}-01`).then(({ data }) => { const paidRows = (data ?? []).filter((row) => row.status === "paid" || Number(row.received_amount ?? 0) >= Number(row.expected_amount ?? 0)); setPaidLeaseIds(new Set(paidRows.map((row) => String(row.lease_id)))); setPaidAmounts(Object.fromEntries(paidRows.map((row) => [String(row.lease_id), Number(row.received_amount ?? 0)]))); });
     void loadPayments();
     const channel = supabase.channel(`employee-payments-${organizationId}-${selectedMonth}`).on("postgres_changes", { event: "*", schema: "public", table: "lease_payments", filter: `organization_id=eq.${organizationId}` }, () => { void loadPayments(); }).subscribe();
-    const timer = window.setInterval(() => { void loadPayments(); }, 15000);
-    return () => { window.clearInterval(timer); void supabase.removeChannel(channel); };
+    const onFocus = () => { void loadPayments(); };
+    window.addEventListener("focus", onFocus);
+    return () => { window.removeEventListener("focus", onFocus); void supabase.removeChannel(channel); };
   }, [organizationId, selectedMonth]);
   const active = buildings.filter((building) => building.status !== "vendido");
   const units = active.flatMap((building) => (building.unitsData ?? []).map((unit) => ({ building, unit })));

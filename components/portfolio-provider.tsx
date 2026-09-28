@@ -337,18 +337,21 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "property_units", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
       .on("postgres_changes", { event: "*", schema: "public", table: "leases", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
       .subscribe();
-    const interval = window.setInterval(() => { void refresh({ silent: true }); }, 30000);
-    return () => { window.clearInterval(interval); void supabase.removeChannel(channel); };
+    const onFocus = () => { void refresh({ silent: true }); };
+    window.addEventListener("focus", onFocus);
+    return () => { window.removeEventListener("focus", onFocus); void supabase.removeChannel(channel); };
   }, [refresh, session, value.organizationId]);
   useEffect(() => {
     if (!session) return;
-    const interval = window.setInterval(async () => {
+    const loadInvitations = async () => {
       const supabase = createSupabaseBrowserClient();
       if (!supabase) return;
       const result = await supabase.rpc("list_my_invitations");
       if (!result.error) setValue((current) => ({ ...current, pendingInvitations: mapPendingInvitations(result.data) }));
-    }, 30000);
-    return () => window.clearInterval(interval);
+    };
+    const onFocus = () => { void loadInvitations(); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [session]);
   const switchOrganization = useCallback((organizationId: string) => { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }, []);
   const setPrimaryOrganization = useCallback(async (organizationId: string) => {

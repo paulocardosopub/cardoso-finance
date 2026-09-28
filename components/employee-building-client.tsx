@@ -62,8 +62,9 @@ export function EmployeeBuildingClient({ building }: { building: Building }) {
     const loadPayments = () => supabase.from("lease_payments").select("lease_id, status, received_amount, expected_amount, received_at, notes").eq("organization_id", organizationId).eq("competence", `${selectedMonth}-01`).then(({ data }) => setPayments((data ?? []) as PaymentRow[]));
     void loadPayments();
     const channel = supabase.channel(`employee-building-payments-${organizationId}-${building.dbId}-${selectedMonth}`).on("postgres_changes", { event: "*", schema: "public", table: "lease_payments", filter: `organization_id=eq.${organizationId}` }, () => { void loadPayments(); }).subscribe();
-    const timer = window.setInterval(() => { void loadPayments(); }, 15000);
-    return () => { window.clearInterval(timer); void supabase.removeChannel(channel); };
+    const onFocus = () => { void loadPayments(); };
+    window.addEventListener("focus", onFocus);
+    return () => { window.removeEventListener("focus", onFocus); void supabase.removeChannel(channel); };
   }, [building.dbId, organizationId, selectedMonth]);
 
   useEffect(() => {
