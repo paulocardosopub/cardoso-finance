@@ -47,8 +47,9 @@ export function PropertyAlbum({ buildings, organizationId }: { buildings: Buildi
 
   useEffect(() => {
     void loadAlbum();
-    const interval = window.setInterval(() => void loadAlbum(), 30000);
-    return () => window.clearInterval(interval);
+    const onFocus = () => void loadAlbum();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [loadAlbum]);
 
   useEffect(() => {
@@ -73,9 +74,9 @@ export function PropertyAlbum({ buildings, organizationId }: { buildings: Buildi
   return <section className="panel property-album-panel">
     <div className="panel-heading"><div><h2><Images size={16} /> Álbum dos imóveis</h2><p>Fotos principais e imagens carregadas na tela de imóveis</p></div>{items.length > 0 && <span className="album-count">{activeIndex + 1} / {items.length}</span>}</div>
     {visibleItems.active ? <div className="property-album" aria-label="Álbum de fotos dos imóveis">
-      {visibleItems.previous && <button type="button" className="album-side album-side-left" onClick={() => move(-1)} aria-label="Foto anterior"><img src={visibleItems.previous.url} alt="" /><span><ChevronLeft size={17} /></span></button>}
-      <Link href={buildingPath(visibleItems.active.building)} className="album-main"><img src={visibleItems.active.url} alt={`${visibleItems.active.isPrimary ? "Foto principal" : "Foto"} de ${visibleItems.active.code}`} /><div className="album-caption"><strong>{visibleItems.active.code}{visibleItems.active.isPrimary ? " · Principal" : ""}</strong><small>{visibleItems.active.buildingName} · {visibleItems.active.city}</small></div></Link>
-      {visibleItems.next && <button type="button" className="album-side album-side-right" onClick={() => move(1)} aria-label="Próxima foto"><img src={visibleItems.next.url} alt="" /><span><ChevronRight size={17} /></span></button>}
+      {visibleItems.previous && <button type="button" className="album-side album-side-left" onClick={() => move(-1)} aria-label="Foto anterior"><img src={visibleItems.previous.url} alt="" loading="lazy" decoding="async" /><span><ChevronLeft size={17} /></span></button>}
+      <Link href={buildingPath(visibleItems.active.building)} className="album-main"><img src={visibleItems.active.url} alt={`${visibleItems.active.isPrimary ? "Foto principal" : "Foto"} de ${visibleItems.active.code}`} decoding="async" /><div className="album-caption"><strong>{visibleItems.active.code}{visibleItems.active.isPrimary ? " · Principal" : ""}</strong><small>{visibleItems.active.buildingName} · {visibleItems.active.city}</small></div></Link>
+      {visibleItems.next && <button type="button" className="album-side album-side-right" onClick={() => move(1)} aria-label="Próxima foto"><img src={visibleItems.next.url} alt="" loading="lazy" decoding="async" /><span><ChevronRight size={17} /></span></button>}
       <div className="album-dots" aria-label="Selecionar foto">{items.map((item, index) => <button type="button" key={`${item.unitId}-${index}`} className={index === activeIndex ? "active" : ""} onClick={() => setActiveIndex(index)} aria-label={`Mostrar ${item.code}`} />)}</div>
     </div> : <div className="album-empty"><ImageIcon size={24} /><p>As fotos dos imóveis aparecerão aqui assim que forem carregadas.</p></div>}
   </section>;

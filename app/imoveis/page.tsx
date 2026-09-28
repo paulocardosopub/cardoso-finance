@@ -189,8 +189,9 @@ function EmployeeProperties({ organizationId, buildings, buildingPhotos, query, 
     });
     void loadPayments();
     const channel = supabase.channel(`employee-properties-payments-${organizationId}-${selectedMonth}`).on("postgres_changes", { event: "*", schema: "public", table: "lease_payments", filter: `organization_id=eq.${organizationId}` }, () => { void loadPayments(); }).subscribe();
-    const timer = window.setInterval(() => { void loadPayments(); }, 15000);
-    return () => { window.clearInterval(timer); void supabase.removeChannel(channel); };
+    const onFocus = () => { void loadPayments(); };
+    window.addEventListener("focus", onFocus);
+    return () => { window.removeEventListener("focus", onFocus); void supabase.removeChannel(channel); };
   }, [organizationId, selectedMonth]);
 
   const paymentByLease = useMemo(() => new Map(payments.map((payment) => [String(payment.lease_id), payment])), [payments]);

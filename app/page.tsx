@@ -118,8 +118,9 @@ function RecentActivity({ organizationId, userName, previewMembers }: RecentActi
       if (active && !result.error) setRows((result.data ?? []) as RecentActivityRow[]);
     };
     void load();
-    const timer = window.setInterval(() => { void load(); }, 15000);
-    return () => { active = false; window.clearInterval(timer); };
+    const onFocus = () => { void load(); };
+    window.addEventListener("focus", onFocus);
+    return () => { active = false; window.removeEventListener("focus", onFocus); };
   }, [organizationId]);
 
   const actorName = (createdBy: string | null) => { const member = previewMembers.find((item) => item.userId === createdBy); if (!member) return createdBy ? "Usuário da holding" : userName; return `${member.role === "employee" ? "Funcionária" : member.role === "owner" || member.role === "admin" ? "Administrador" : "Gestor"} ${member.name}`; };
