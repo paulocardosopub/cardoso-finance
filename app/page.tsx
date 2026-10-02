@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, BellRing, Building2, CalendarDays, ChevronLeft, ChevronRight, CircleDollarSign, Landmark, MapPinned, MoreHorizontal, Plus, Receipt, Tag, TrendingUp, WalletCards } from "lucide-react";
+import { ArrowUpRight, BellRing, Building2, CalendarDays, ChevronLeft, ChevronRight, CircleDollarSign, FileText, Landmark, Loader2, MapPinned, MoreHorizontal, Plus, Receipt, Tag, TrendingUp, WalletCards } from "lucide-react";
 import { WealthChart } from "@/components/wealth-chart";
 import { PropertyAlbum } from "@/components/property-album";
 import { usePortfolio } from "@/components/portfolio-provider";
@@ -9,6 +9,7 @@ import { brl, compactBrl } from "@/lib/format";
 import type { Building } from "@/types/domain";
 import { buildingPath } from "@/lib/building-path";
 import { buildingIsForSale, sortBuildingsForDisplay } from "@/lib/building-order";
+import { buildMonthlyReport, MonthlyReport } from "@/components/monthly-report";
 import { useEffect, useState } from "react";
 import { PropertyMap, type PropertyMapPin } from "@/components/property-map";
 import { EmployeeDashboard } from "@/components/employee-dashboard";
@@ -37,6 +38,8 @@ export default function DashboardPage() {
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
   const [historicalMonthlyExpected, setHistoricalMonthlyExpected] = useState<number | null>(null);
   const [historicalExpectedLoading, setHistoricalExpectedLoading] = useState(true);
+  const [reportMonth, setReportMonth] = useState<string | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
   useEffect(() => { setWelcomeIndex(Math.floor(Math.random() * welcomeMessages.length)); }, []);
   useEffect(() => {
     let active = true;
@@ -80,12 +83,19 @@ export default function DashboardPage() {
     return !payment || (payment.status !== "paid" && payment.status !== "waived" && payment.receivedAmount < payment.expectedAmount);
   }).length;
   const saleBuildings = activeBuildings.filter(isForSale);
+  const canRequestReport = role !== "viewer";
+  const report = reportMonth ? buildMonthlyReport(activeBuildings, leasePayments, expenses, reportMonth) : null;
+  function requestReport() {
+    if (!selectedMonth || reportLoading) return;
+    setReportLoading(true);
+    window.setTimeout(() => { setReportMonth(selectedMonth); setReportLoading(false); }, 220);
+  }
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando sua carteira...</p></div></div>;
   if (!organizationId) return <div className="content"><div className="empty-state"><Landmark size={30} /><h3>Crie sua primeira organização</h3><p>Depois da criação, os 62 registros válidos da planilha serão importados no Supabase.</p><Link href="/onboarding" className="button button-primary"><Plus size={15} /> Começar</Link></div></div>;
   if (role === "employee") return <EmployeeDashboard buildings={buildings} organizationId={organizationId} userName={userName} refresh={refresh} />;
   if (role === "viewer") return <MemberDashboard buildings={activeBuildings} organizationId={organizationId} userName={userName} viewedMemberName={actualRole !== "viewer" ? previewMembers.find((member) => member.userId === viewAsMemberId || `user:${member.userId}` === viewAsMemberId || `contact:${member.contactId}` === viewAsMemberId || member.memberId === viewAsMemberId)?.name : undefined} visibility={memberVisibility} summary={memberSummary} ownership={ownershipSummary} />;
   return <div className="content">
-    <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Carteira sincronizada</div><h1>{welcomeMessages[welcomeIndex].replace("{name}", userName)}</h1><p className="subtitle">Dados reais da sua organização, com patrimônio baseado exclusivamente em AVALIAÇÃO. Mês de referência: {monthLabel(selectedMonth)}.</p></div><div className="page-heading-actions"><div className="month-navigator"><button type="button" className="icon-btn" onClick={() => setSelectedMonth((month) => shiftMonth(month, -1))} aria-label="Mês anterior"><ChevronLeft size={16} /></button><CalendarDays size={15} /><strong>{monthLabel(selectedMonth)}</strong><button type="button" className="icon-btn" onClick={() => setSelectedMonth((month) => shiftMonth(month, 1))} aria-label="Próximo mês"><ChevronRight size={16} /></button></div><Link href="/imoveis" className="button button-primary"><Plus size={15} /><span>Gerenciar imóveis</span></Link></div></div>
+    <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Carteira sincronizada</div><h1>{welcomeMessages[welcomeIndex].replace("{name}", userName)}</h1><p className="subtitle">Dados reais da sua organização, com patrimônio baseado exclusivamente em AVALIAÇÃO. Mês de referência: {monthLabel(selectedMonth)}.</p></div><div className="page-heading-actions"><div className="month-navigator"><button type="button" className="icon-btn" onClick={() => setSelectedMonth((month) => shiftMonth(month, -1))} aria-label="Mês anterior"><ChevronLeft size={16} /></button><CalendarDays size={15} /><strong>{monthLabel(selectedMonth)}</strong><button type="button" className="icon-btn" onClick={() => setSelectedMonth((month) => shiftMonth(month, 1))} aria-label="Próximo mês"><ChevronRight size={16} /></button></div>{canRequestReport && <button className="button button-ghost" type="button" onClick={requestReport} disabled={reportLoading || !selectedMonth}>{reportLoading ? <><Loader2 size={14} className="spin" /> Gerando...</> : <><FileText size={14} /> Solicitar Report</>}</button>}<Link href="/imoveis" className="button button-primary"><Plus size={15} /><span>Gerenciar imóveis</span></Link></div></div>
     <section className="metrics"><Metric href="/patrimonio" icon={<CircleDollarSign size={15} />} label="Patrimônio imobiliário" value={compactBrl(totalValue)} foot={`${buildings.length} prédios organizados`} positive /><Metric href={`/imoveis?month=${selectedMonth}`} icon={<ArrowUpRight size={15} />} label="Aluguéis mensais esperados" value={historicalExpectedLoading ? "—" : brl(monthlyExpected)} foot={`Previstos em ${monthLabel(selectedMonth)}`} positive /><Metric href={`/imoveis?month=${selectedMonth}`} icon={<ArrowUpRight size={15} />} label={`Aluguéis mensais atuais (${monthLabel(selectedMonth)})`} value={brl(monthlyPaid)} foot={`Recebidos em ${monthLabel(selectedMonth)}`} positive /><Metric href={`/imoveis?filter=nao-pagos&month=${selectedMonth}`} icon={<Receipt size={15} />} label="Unidades que ainda não pagaram esse mês" value={String(unpaidUnits.length)} foot={`Aluguel registrado, sem confirmação em ${monthLabel(selectedMonth)}`} positive={unpaidUnits.length === 0} /><Metric href={`/despesas?month=${selectedMonth}`} icon={<Receipt size={15} />} label="Despesas mensais" value={brl(selectedMonthlyExpenses)} foot={`Saldo após despesas: ${brl(selectedMonthlyProfit)}`} /><Metric href={`/imoveis?filter=vagos&month=${selectedMonth}`} icon={<Landmark size={15} />} label="Ocupação" value={`${occupancy}%`} foot={`${occupied} de ${units} unidades`} positive /><Metric href="/financeiro" icon={<WalletCards size={15} />} label="Saldo bancário" value={brl(bankBalance)} foot="Após aluguéis, despesas e transferências" positive={bankBalance >= 0} /></section>
     <section className="dashboard-grid">
       <div className="panel"><div className="panel-heading"><div><h2>Patrimônio por grupo</h2><p>Valores atuais gravados no banco</p></div><button className="icon-btn" aria-label="Mais opções"><MoreHorizontal size={17} /></button></div><div className="legend"><span><i /> Avaliação</span></div><WealthChart buildings={activeBuildings} /></div>
@@ -95,6 +105,7 @@ export default function DashboardPage() {
       <HoldingEvolution organizationId={organizationId} />
       <PropertyAlbum buildings={activeBuildings} organizationId={organizationId} />
     </section>
+    {report && <MonthlyReport report={report} onClose={() => setReportMonth(null)} />}
   </div>;
 }
 
