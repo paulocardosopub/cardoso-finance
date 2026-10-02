@@ -5,7 +5,7 @@ import { CircleDollarSign, Download, FileText, Users, X } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { Building, ExpenseRecord, LeasePaymentRecord, PropertyUnit } from "@/types/domain";
-import { leaseActiveInMonth } from "@/lib/month";
+import { unitRentActiveInMonth } from "@/lib/month";
 import { brl } from "@/lib/format";
 
 export type ReportPaymentStatus = "paid" | "waived" | "partial" | "pending" | "overdue" | "no_lease";
@@ -87,7 +87,7 @@ function monthLabel(month: string) {
 }
 
 function activeLease(unit: PropertyUnit, month: string) {
-  return Boolean(unit.lease && (unit.lease.status === "active" || unit.lease.status === "ending") && leaseActiveInMonth(unit.lease, month));
+  return unitRentActiveInMonth(unit, month);
 }
 
 function paymentStatus(unit: PropertyUnit, payment: LeasePaymentRecord | undefined, month: string, today: string): ReportPaymentStatus {

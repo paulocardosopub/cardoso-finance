@@ -29,6 +29,21 @@ export function leaseActiveInMonth(lease: { startDate?: string | null; endDate?:
   return true;
 }
 
+/**
+ * Returns whether a unit contributes monthly rent in a competence month.
+ * Units marked for sale can still be rented; the provider represents those
+ * records as `venda_alugado`, but the status fallback also keeps imported or
+ * incomplete records with a positive rent visible in the financial totals.
+ */
+export function unitRentActiveInMonth(unit: { status?: string | null; rent?: number | null; lease?: { startDate?: string | null; endDate?: string | null; status?: string | null } | null | undefined }, month: string) {
+  if (!isRentalMonthAvailable(month) || Number(unit.rent || 0) <= 0) return false;
+  if (unit.lease) {
+    const leaseStatus = unit.lease.status;
+    return (leaseStatus === undefined || leaseStatus === "active" || leaseStatus === "ending") && leaseActiveInMonth(unit.lease, month);
+  }
+  return unit.status === "alugado" || unit.status === "venda" || unit.status === "venda_alugado";
+}
+
 export function monthLabel(month: string) {
   const date = new Date(`${month}-01T12:00:00`);
   return date.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });

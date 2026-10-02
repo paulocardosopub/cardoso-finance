@@ -11,7 +11,7 @@ import { buildingPath } from "@/lib/building-path";
 import { buildingIsForSale, sortBuildingsForDisplay } from "@/lib/building-order";
 import { listAuthorizedDocuments } from "@/lib/member-access";
 import { unitMonthlyRent } from "@/lib/rent";
-import { currentMonthKey, isRentalMonthAvailable, leaseActiveInMonth, monthLabel, shiftMonth } from "@/lib/month";
+import { currentMonthKey, isRentalMonthAvailable, unitRentActiveInMonth, monthLabel, shiftMonth } from "@/lib/month";
 import { uploadPaymentProof } from "@/lib/payment-proof";
 import { PaymentConfirmationModal, type PaymentConfirmationValues } from "@/components/payment-confirmation-modal";
 
@@ -67,7 +67,7 @@ export default function ImoveisPage() {
     const text = `${building.name} ${building.city} ${building.state}`.toLowerCase();
     const matchesQuery = text.includes(query.toLowerCase());
     const matchesFilter = filter === "todos" || filter === "vendidos" || (filter === "venda" ? isForSale(building) : filter === "proximos" ? Boolean(building.saleProximity) : filter === "atencao" ? Boolean(building.attention) : filter === "nao-pagos" ? (isRentalMonthAvailable(selectedMonth) && (building.unitsData ?? []).some((unit) => {
-      if (!leaseActiveInMonth(unit.lease, selectedMonth) || unit.rent <= 0) return false;
+      if (!unitRentActiveInMonth(unit, selectedMonth)) return false;
       const payment = unit.lease?.id ? paymentByLease.get(unit.lease.id) : undefined;
       return !payment || (payment.status !== "paid" && payment.status !== "waived" && payment.receivedAmount < payment.expectedAmount);
     })) : filter === "ocupados" ? building.occupied > 0 : building.occupied < building.units);
@@ -78,7 +78,7 @@ export default function ImoveisPage() {
   const totalValue = activeBuildings.reduce((total, building) => total + building.value, 0);
   const totalUnits = activeBuildings.reduce((total, building) => total + building.units, 0);
   const totalOccupied = activeBuildings.reduce((total, building) => total + building.occupied, 0);
-  const buildingMonthlyRevenue = (building: Building) => (building.unitsData ?? []).reduce((sum, unit) => sum + (leaseActiveInMonth(unit.lease, selectedMonth) ? unitMonthlyRent(unit) : 0), 0);
+  const buildingMonthlyRevenue = (building: Building) => (building.unitsData ?? []).reduce((sum, unit) => sum + (unitRentActiveInMonth(unit, selectedMonth) ? unitMonthlyRent(unit) : 0), 0);
   const totalRevenue = activeBuildings.reduce((sum, building) => sum + buildingMonthlyRevenue(building), 0);
   const currentMonth = selectedMonth;
   const buildingMonthlyExpenses = (building: Building) => expenses.filter((expense) => expense.building_id === building.dbId && (expense.expense_kind !== "one_time" || expense.expense_date?.startsWith(currentMonth))).reduce((sum, expense) => sum + Number(expense.value || 0), 0);
@@ -156,7 +156,7 @@ export default function ImoveisPage() {
     <div className="metrics">{showMemberValues && <div className="metric-card"><div className="metric-top"><span>Patrimônio imobiliário</span><span className="metric-icon"><Building2 size={15} /></span></div><div className="metric-value">{compactBrl(totalValue)}</div><div className="metric-foot positive">AVALIAÇÃO</div></div>}<div className="metric-card"><div className="metric-top"><span>Prédios / grupos</span><span className="metric-icon">{String(buildings.length).padStart(2, "0")}</span></div><div className="metric-value">{String(buildings.length).padStart(2, "0")}</div><div className="metric-foot">{totalUnits} unidades</div></div>{showMemberRent && <div className="metric-card"><div className="metric-top"><span>{role === "viewer" ? "Sua receita líquida mensal" : "Receita identificada"}</span><span className="metric-icon">R$</span></div><div className="metric-value">{brl(role === "viewer" ? memberSummary.totalRent : totalRevenue)}</div><div className="metric-foot positive">{role === "viewer" ? `${memberSummary.ownershipPercentage.toFixed(2).replace(".", ",")}% da receita, após despesas` : showMemberStatus ? `${totalOccupied} unidades alugadas` : "Informação consolidada"}</div></div>}{role !== "viewer" && showMemberRent && showMemberValues && <div className="metric-card"><div className="metric-top"><span>Yield anualizado</span><span className="metric-icon">%</span></div><div className="metric-value">{totalValue ? ((totalRevenue * 12 / totalValue) * 100).toFixed(1).replace(".", ",") : "0,0"}%</div><div className="metric-foot">sobre AVALIAÇÃO</div></div>}</div>
     <div className="panel"><div className="panel-heading"><div><h2>{filter === "vendidos" ? "Imóveis vendidos" : filter === "proximos" ? "Próximos a vender" : filter === "atencao" ? "Imóveis em atenção" : filter === "nao-pagos" ? "Unidades sem pagamento confirmado" : "Todos os prédios e grupos"}</h2><p>{visible.length} agrupamentos · resultado líquido de {monthLabel(currentMonth)} para a administração.</p></div><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><label className="search-inline"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar" /></label>{showMemberStatus && <><select className="filter-select" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="todos">Ativos</option><option value="ocupados">Com ocupação</option><option value="vagos">Com vagas</option><option value="venda">À venda</option><option value="proximos">Próximos a vender</option><option value="atencao">Atenção</option><option value="nao-pagos">Unidades sem pagamento no mês</option><option value="vendidos">Vendidos</option></select><SlidersHorizontal size={14} style={{ alignSelf: "center", color: "#8490a5" }} /></>}</div></div><div className="building-list">{filter === "nao-pagos" ? orderedVisible.map((building) => {
         const unpaidUnits = (building.unitsData ?? []).filter((unit) => {
-          if (!leaseActiveInMonth(unit.lease, selectedMonth) || unit.rent <= 0 || !unit.lease?.id) return false;
+          if (!unitRentActiveInMonth(unit, selectedMonth) || unit.rent <= 0 || !unit.lease?.id) return false;
           const payment = paymentByLease.get(unit.lease.id);
           return !payment || (payment.status !== "paid" && payment.status !== "waived" && payment.receivedAmount < payment.expectedAmount);
         });
@@ -220,7 +220,7 @@ function EmployeeProperties({ organizationId, buildings, buildingPhotos, query, 
   function buildingTotals(building: Building) {
     if (!isRentalMonthAvailable(selectedMonth)) return { expected: 0, received: 0 };
     return (building.unitsData ?? []).reduce((totals, unit) => {
-      if (!leaseActiveInMonth(unit.lease, selectedMonth) || unit.rent <= 0) return totals;
+      if (!unitRentActiveInMonth(unit, selectedMonth)) return totals;
       const expected = unitMonthlyRent(unit);
       const payment = unit.lease?.id ? paymentByLease.get(unit.lease.id) : undefined;
       const received = payment && (payment.status === "paid" || Number(payment.received_amount) > 0) ? Number(payment.received_amount || 0) : 0;

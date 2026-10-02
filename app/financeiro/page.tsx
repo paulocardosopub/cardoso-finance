@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { brl } from "@/lib/format";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
-import { currentMonthKey, isRentalMonthAvailable, leaseActiveInMonth, monthLabel, shiftMonth } from "@/lib/month";
+import { currentMonthKey, isRentalMonthAvailable, unitRentActiveInMonth, monthLabel, shiftMonth } from "@/lib/month";
 import { unitsMonthlyRent } from "@/lib/rent";
 
 type FinancialHistoryRow = { id: string; event_type: "credit" | "debit"; amount: number; description: string; occurred_at: string; source_payment_id?: string | null };
@@ -25,7 +25,7 @@ export default function FinanceiroPage() {
     supabase.from("financial_history").select("id, event_type, amount, description, occurred_at, source_payment_id").eq("organization_id", organizationId).order("occurred_at", { ascending: false }).limit(100).then(({ data }) => setHistory((data ?? []) as FinancialHistoryRow[]));
   }, [organizationId]);
   const rentalMonthAvailable = isRentalMonthAvailable(selectedMonth);
-  const rentalUnitsForMonth = useMemo(() => rentalMonthAvailable ? rentalUnits.filter((unit) => leaseActiveInMonth(unit.lease, selectedMonth)) : [], [rentalMonthAvailable, rentalUnits, selectedMonth]);
+  const rentalUnitsForMonth = useMemo(() => rentalMonthAvailable ? rentalUnits.filter((unit) => unitRentActiveInMonth(unit, selectedMonth)) : [], [rentalMonthAvailable, rentalUnits, selectedMonth]);
   const monthlyRent = unitsMonthlyRent(rentalUnitsForMonth);
   const periodPayments = rentalMonthAvailable ? leasePayments.filter((payment) => payment.competence.startsWith(selectedMonth)) : [];
   const periodReceived = periodPayments.reduce((total, payment) => total + payment.receivedAmount, 0);
