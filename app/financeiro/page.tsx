@@ -28,7 +28,7 @@ export default function FinanceiroPage() {
   const rentalUnitsForMonth = useMemo(() => rentalMonthAvailable ? rentalUnits.filter((unit) => leaseActiveInMonth(unit.lease, selectedMonth)) : [], [rentalMonthAvailable, rentalUnits, selectedMonth]);
   const monthlyRent = unitsMonthlyRent(rentalUnitsForMonth);
   const periodPayments = rentalMonthAvailable ? leasePayments.filter((payment) => payment.competence.startsWith(selectedMonth)) : [];
-  const periodReceived = periodPayments.reduce((total, payment) => total + Number(payment.netAmount || payment.receivedAmount || 0), 0);
+  const periodReceived = periodPayments.reduce((total, payment) => total + payment.receivedAmount, 0);
   const periodExpenses = expenses.filter((expense) => expense.expense_kind !== "one_time" || expense.expense_date?.startsWith(selectedMonth));
   const periodExpenseTotal = periodExpenses.reduce((total, expense) => total + Number(expense.value || 0), 0);
   const periodProfit = periodReceived - periodExpenseTotal;

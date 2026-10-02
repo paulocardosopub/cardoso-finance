@@ -69,7 +69,7 @@ export default function DashboardPage() {
   const monthPayments = leasePayments.filter((item) => item.competence.startsWith(selectedMonth)).filter((item) => monthUnits.some((unit) => unit.lease?.id === item.leaseId && leaseActiveInMonth(unit.lease, selectedMonth)));
   const fallbackMonthlyExpected = isRentalMonthAvailable(selectedMonth) ? activeBuildings.flatMap((building) => building.unitsData ?? []).reduce((sum, unit) => sum + (leaseActiveInMonth(unit.lease, selectedMonth) && unit.rent > 0 ? unit.rent * (unit.quantity ?? 1) : 0), 0) : 0;
   const monthlyExpected = historicalMonthlyExpected ?? fallbackMonthlyExpected;
-  const monthlyPaid = isRentalMonthAvailable(selectedMonth) ? monthPayments.filter((payment) => payment.status === "paid" || payment.receivedAmount > 0).reduce((sum, payment) => sum + (payment.netAmount || payment.receivedAmount || 0), 0) : 0;
+  const monthlyPaid = isRentalMonthAvailable(selectedMonth) ? monthPayments.filter((payment) => payment.status === "paid" || payment.receivedAmount > 0).reduce((sum, payment) => sum + payment.receivedAmount, 0) : 0;
   const selectedMonthlyExpenses = expenses.filter((expense) => expense.expense_kind !== "one_time" || expense.expense_date?.startsWith(selectedMonth)).reduce((sum, expense) => sum + Number(expense.value || 0), 0);
   const selectedMonthlyProfit = monthlyPaid - selectedMonthlyExpenses;
   const unpaidUnits = activeBuildings.flatMap((building) => building.unitsData ?? []).filter((unit) => {

@@ -223,7 +223,7 @@ function EmployeeProperties({ organizationId, buildings, buildingPhotos, query, 
       if (!leaseActiveInMonth(unit.lease, selectedMonth) || unit.rent <= 0) return totals;
       const expected = unitMonthlyRent(unit);
       const payment = unit.lease?.id ? paymentByLease.get(unit.lease.id) : undefined;
-      const received = payment && (payment.status === "paid" || Number(payment.received_amount) > 0) ? Number(payment.net_amount || payment.received_amount || 0) : 0;
+      const received = payment && (payment.status === "paid" || Number(payment.received_amount) > 0) ? Number(payment.received_amount || 0) : 0;
       return { expected: totals.expected + expected, received: totals.received + received };
     }, { expected: 0, received: 0 });
   }
