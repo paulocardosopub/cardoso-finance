@@ -91,7 +91,8 @@ export default function DashboardPage() {
   if (loading) return <div className="content"><div className="empty-state"><p>Carregando sua carteira...</p></div></div>;
   if (!organizationId) return <div className="content"><div className="empty-state"><Landmark size={30} /><h3>Crie sua primeira organização</h3><p>Depois da criação, os 62 registros válidos da planilha serão importados no Supabase.</p><Link href="/onboarding" className="button button-primary"><Plus size={15} /> Começar</Link></div></div>;
   if (role === "employee") return <EmployeeDashboard buildings={buildings} organizationId={organizationId} userName={userName} refresh={refresh} />;
-  if (role === "viewer") return <MemberDashboard buildings={activeBuildings} organizationId={organizationId} userName={userName} viewedMemberName={actualRole !== "viewer" ? previewMembers.find((member) => member.userId === viewAsMemberId || `user:${member.userId}` === viewAsMemberId || `contact:${member.contactId}` === viewAsMemberId || member.memberId === viewAsMemberId)?.name : undefined} visibility={memberVisibility} summary={memberSummary} ownership={ownershipSummary} />;
+  const viewedMember = actualRole !== "viewer" ? previewMembers.find((member) => member.userId === viewAsMemberId || `user:${member.userId}` === viewAsMemberId || `contact:${member.contactId}` === viewAsMemberId || member.memberId === viewAsMemberId) : undefined;
+  if (role === "viewer") return <MemberDashboard buildings={activeBuildings} organizationId={organizationId} userName={userName} viewedMemberName={viewedMember?.name} targetMemberUser={viewedMember?.userId ?? null} targetMemberContact={viewedMember?.contactId ?? null} visibility={memberVisibility} summary={memberSummary} ownership={ownershipSummary} />;
   return <div className="content">
     <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Carteira sincronizada</div><h1>{welcomeMessages[welcomeIndex].replace("{name}", userName)}</h1><p className="subtitle">Dados reais da sua organização, com patrimônio baseado exclusivamente em AVALIAÇÃO. Mês de referência: {monthLabel(selectedMonth)}.</p></div><div className="page-heading-actions"><div className="month-navigator"><button type="button" className="icon-btn" onClick={() => setSelectedMonth((month) => shiftMonth(month, -1))} aria-label="Mês anterior"><ChevronLeft size={16} /></button><CalendarDays size={15} /><strong>{monthLabel(selectedMonth)}</strong><button type="button" className="icon-btn" onClick={() => setSelectedMonth((month) => shiftMonth(month, 1))} aria-label="Próximo mês"><ChevronRight size={16} /></button></div>{canRequestReport && <button className="button button-ghost" type="button" onClick={requestReport}><FileText size={14} /> Solicitar Report</button>}<Link href="/imoveis" className="button button-primary"><Plus size={15} /><span>Gerenciar imóveis</span></Link></div></div>
     <section className="metrics"><Metric href="/patrimonio" icon={<CircleDollarSign size={15} />} label="Patrimônio imobiliário" value={compactBrl(totalValue)} foot={`${buildings.length} prédios organizados`} positive /><Metric href={`/imoveis?month=${selectedMonth}`} icon={<ArrowUpRight size={15} />} label="Aluguéis mensais esperados" value={brl(monthlyExpected)} foot={`Unidades alugadas em ${monthLabel(selectedMonth)}`} positive /><Metric href={`/imoveis?month=${selectedMonth}`} icon={<ArrowUpRight size={15} />} label={`Aluguéis mensais atuais (${monthLabel(selectedMonth)})`} value={brl(monthlyPaid)} foot={`Pagamentos marcados como pagos em ${monthLabel(selectedMonth)}`} positive /><Metric href={`/imoveis?filter=nao-pagos&month=${selectedMonth}`} icon={<Receipt size={15} />} label="Unidades que ainda não pagaram esse mês" value={String(unpaidUnits.length)} foot={`Aluguel registrado, sem confirmação em ${monthLabel(selectedMonth)}`} positive={unpaidUnits.length === 0} /><Metric href={`/despesas?month=${selectedMonth}`} icon={<Receipt size={15} />} label="Despesas mensais" value={brl(selectedMonthlyExpenses)} foot={`Saldo após despesas: ${brl(selectedMonthlyProfit)}`} /><Metric href={`/imoveis?filter=vagos&month=${selectedMonth}`} icon={<Landmark size={15} />} label="Ocupação" value={`${occupancy}%`} foot={`${occupied} de ${units} unidades`} positive /><Metric href="/financeiro" icon={<WalletCards size={15} />} label="Saldo bancário" value={brl(bankBalance)} foot="Após aluguéis, despesas e transferências" positive={bankBalance >= 0} /></section>
@@ -139,19 +140,53 @@ function RecentActivity({ organizationId, userName, previewMembers }: RecentActi
 
 function Metric({ icon, label, value, foot, positive, href }: { icon: React.ReactNode; label: string; value: string; foot: string; positive?: boolean; href?: string }) { const content = <><div className="metric-top"><span>{label}</span><span className="metric-icon">{icon}</span></div><div className="metric-value">{value}</div><div className={`metric-foot ${positive ? "positive" : ""}`}>{foot}</div></>; return href ? <Link href={href} className="metric-card metric-card-link">{content}</Link> : <div className="metric-card">{content}</div>; }
 
-function MemberDashboard({ buildings, organizationId, userName, viewedMemberName, visibility, summary, ownership }: { buildings: Building[]; organizationId: string; userName: string; viewedMemberName?: string; visibility: ReturnType<typeof usePortfolio>["memberVisibility"]; summary: ReturnType<typeof usePortfolio>["memberSummary"]; ownership: ReturnType<typeof usePortfolio>["ownershipSummary"] }) {
+function MemberDashboard({ buildings, organizationId, userName, viewedMemberName, targetMemberUser, targetMemberContact, visibility, summary, ownership }: { buildings: Building[]; organizationId: string; userName: string; viewedMemberName?: string; targetMemberUser?: string | null; targetMemberContact?: string | null; visibility: ReturnType<typeof usePortfolio>["memberVisibility"]; summary: ReturnType<typeof usePortfolio>["memberSummary"]; ownership: ReturnType<typeof usePortfolio>["ownershipSummary"] }) {
+  const currentMonth = currentMonthKey();
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const [monthlySummary, setMonthlySummary] = useState(summary);
+  const [monthlySummaryLoading, setMonthlySummaryLoading] = useState(false);
+  useEffect(() => {
+    let active = true;
+    if (selectedMonth === currentMonth) {
+      setMonthlySummary(summary);
+      setMonthlySummaryLoading(false);
+      return () => { active = false; };
+    }
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) { setMonthlySummary(summary); setMonthlySummaryLoading(false); return () => { active = false; }; }
+    setMonthlySummaryLoading(true);
+    void supabase.rpc("get_member_paid_revenue_summary", {
+      target_org: organizationId,
+      target_competence: `${selectedMonth}-01`,
+      target_member_user: targetMemberUser ?? null,
+      target_member_contact: targetMemberContact ?? null,
+    }).then(({ data, error }) => {
+      if (!active) return;
+      if (error) { setMonthlySummary(summary); setMonthlySummaryLoading(false); return; }
+      const result = (data ?? {}) as Record<string, unknown>;
+      const paidRent = Number(result.paidRent ?? 0);
+      const expectedRent = Number(result.expectedRent ?? 0);
+      const individualCredits = Number(result.individualCredits ?? 0);
+      const ownExpenses = Number(result.ownExpenses ?? 0);
+      const holdingExpenses = Number(result.holdingExpenses ?? 0);
+      const netRevenue = Number(result.netRevenue ?? (paidRent + individualCredits - ownExpenses - holdingExpenses));
+      setMonthlySummary({ ...summary, totalRent: netRevenue, paidRent, expectedRent, netRevenue, monthlyExpenses: ownExpenses + holdingExpenses, individualCredits });
+      setMonthlySummaryLoading(false);
+    });
+    return () => { active = false; };
+  }, [currentMonth, organizationId, selectedMonth, summary, targetMemberContact, targetMemberUser]);
   const totalOccupied = buildings.reduce((sum, building) => sum + building.occupied, 0);
   const totalUnits = buildings.reduce((sum, building) => sum + building.units, 0);
   const statusCounts = buildings.reduce<Record<string, number>>((counts, building) => ({ ...counts, [building.status]: (counts[building.status] ?? 0) + 1 }), {});
   const states = buildings.reduce<Record<string, number>>((counts, building) => building.state ? ({ ...counts, [building.state]: (counts[building.state] ?? 0) + 1 }) : counts, {});
   const pins: PropertyMapPin[] = buildings.filter((building) => Number.isFinite(building.latitude) && Number.isFinite(building.longitude)).map((building) => ({ id: building.id, name: building.name, latitude: Number(building.latitude), longitude: Number(building.longitude), status: building.status, tone: building.status === "venda" ? "sale" : building.occupied > 0 ? "rented" : "available", city: [building.city, building.state].filter(Boolean).join(", "), address: building.address, googleMapsUrl: `https://www.google.com/maps/search/?api=1&query=${building.latitude},${building.longitude}` }));
   return <div className="content member-dashboard">
-    <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Visão consolidada</div><h1>Olá, {viewedMemberName ?? userName}!</h1><p className="subtitle">{viewedMemberName ? `Visualização do membro ${viewedMemberName}.` : "Acompanhe aqui as informações patrimoniais compartilhadas com os membros."} Mês de referência: {monthLabel(currentMonthKey())}.</p></div><span className="tag">Acesso de consulta</span></div>
+    <div className="page-heading"><div><div className="eyebrow"><TrendingUp size={13} /> Visão consolidada</div><h1>Olá, {viewedMemberName ?? userName}!</h1><p className="subtitle">{viewedMemberName ? `Visualização do membro ${viewedMemberName}.` : "Acompanhe aqui as informações patrimoniais compartilhadas com os membros."} Mês de referência: {monthLabel(selectedMonth)}.</p></div><div className="page-heading-actions"><div className="month-navigator"><button type="button" className="icon-btn" onClick={() => setSelectedMonth((month) => shiftMonth(month, -1))} aria-label="Mês anterior"><ChevronLeft size={16} /></button><CalendarDays size={15} /><strong>{monthLabel(selectedMonth)}</strong><button type="button" className="icon-btn" onClick={() => setSelectedMonth((month) => shiftMonth(month, 1))} aria-label="Próximo mês"><ChevronRight size={16} /></button></div><span className="tag">Acesso de consulta</span></div></div>
     <section className="metrics member-dashboard-metrics">
       {visibility.showTotalAssets && <><Metric href="/patrimonio" icon={<CircleDollarSign size={15} />} label="Seu patrimônio" value={compactBrl(summary.totalValue)} foot="Sua participação proporcional" positive /><Metric href="/patrimonio" icon={<Landmark size={15} />} label="Patrimônio total da holding" value={compactBrl(summary.holdingTotalValue)} foot="Valor total dos imóveis" positive /></>}
       <Metric href="/imoveis" icon={<Building2 size={15} />} label="Imóveis" value={String(summary.totalBuildings)} foot={`${summary.totalUnits || totalUnits} unidades cadastradas`} positive />
       {visibility.showPropertyStatus && <Metric href="/imoveis?filter=vagos" icon={<Landmark size={15} />} label="Ocupação" value={`${totalUnits ? Math.round(totalOccupied / totalUnits * 100) : 0}%`} foot={`${totalOccupied} de ${totalUnits} unidades`} positive />}
-      {visibility.showRentalInfo && <><Metric href="/creditos" icon={<ArrowUpRight size={15} />} label="Aluguéis recebidos no mês" value={brl(summary.paidRent ?? 0)} foot="Somente pagamentos confirmados" positive /><Metric href="/creditos" icon={<ArrowUpRight size={15} />} label="Sua receita líquida mensal" value={brl(summary.netRevenue ?? summary.totalRent)} foot={`${summary.ownershipPercentage.toFixed(2).replace(".", ",")}% da receita, após despesas`} positive={(summary.netRevenue ?? summary.totalRent) >= 0} /></>}
+      {visibility.showRentalInfo && <><Metric href="/creditos" icon={<ArrowUpRight size={15} />} label="Aluguéis recebidos no mês" value={monthlySummaryLoading ? "—" : brl(monthlySummary.paidRent ?? 0)} foot={`Pagamentos confirmados em ${monthLabel(selectedMonth)}`} positive /><Metric href="/creditos" icon={<ArrowUpRight size={15} />} label="Sua receita líquida mensal" value={monthlySummaryLoading ? "—" : brl(monthlySummary.netRevenue ?? monthlySummary.totalRent)} foot={`${monthlySummary.ownershipPercentage.toFixed(2).replace(".", ",")}% da receita, após despesas`} positive={(monthlySummary.netRevenue ?? monthlySummary.totalRent) >= 0} /></>}
     </section>
     <section className="dashboard-grid">
       {visibility.showPropertyValues && <div className="panel"><div className="panel-heading"><div><h2>Patrimônio por imóvel</h2><p>Distribuição dos valores compartilhados</p></div></div><WealthChart buildings={buildings} /></div>}
