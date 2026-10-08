@@ -16,6 +16,7 @@ import { EmployeeDashboard } from "@/components/employee-dashboard";
 import { monthLabel, currentMonthKey, isRentalMonthAvailable, unitRentActiveInMonth, shiftMonth } from "@/lib/month";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { HoldingEvolution } from "@/components/holding-evolution";
+import { MemberEmployeeHistory } from "@/components/member-employee-history";
 
 function saleUnits(building: Building) { return (building.unitsData ?? []).filter((unit) => unit.status === "venda" || unit.status === "venda_alugado"); }
 function isForSale(building: Building) { return buildingIsForSale(building); }
@@ -194,7 +195,7 @@ function MemberDashboard({ buildings, organizationId, userName, viewedMemberName
       {visibility.showLocations && Object.keys(states).length > 0 && <div className="panel"><div className="panel-heading"><div><h2>Distribuição por estado</h2><p>Localização geral dos imóveis</p></div></div>{Object.entries(states).sort((a, b) => b[1] - a[1]).map(([state, count]) => <div className="setting-row" key={state}><span>{state}</span><strong>{count} {count === 1 ? "imóvel" : "imóveis"}</strong></div>)}</div>}
       {visibility.showOwnershipByBeneficiary && ownership.length > 0 && <div className="panel"><div className="panel-heading"><div><h2>Participações</h2><p>Distribuição autorizada pelos administradores</p></div></div>{ownership.map((item) => <div className="setting-row" key={item.name}><span>{item.name}</span><strong>{item.percentage.toFixed(2).replace(".", ",")}%</strong></div>)}</div>}
       {visibility.showMap && pins.length > 0 && <div className="panel member-map-panel"><div className="panel-heading"><div><h2>Mapa dos imóveis</h2><p>{pins.length} localização{pins.length > 1 ? "ões" : ""} compartilhada{pins.length > 1 ? "s" : ""}</p></div><MapPinned size={17} color="#80e2b0" /></div><PropertyMap pins={pins} /></div>}
-      {visibility.showRentalInfo && <HoldingEvolution organizationId={organizationId} />}
+      {visibility.showRentalInfo && <HoldingEvolution organizationId={organizationId} historyAside={<MemberEmployeeHistory organizationId={organizationId} />} />}
       {visibility.showPhotos && <PropertyAlbum buildings={buildings} organizationId={organizationId} />}
     </section>
   </div>;
