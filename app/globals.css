@@ -177,15 +177,25 @@ h3 { font-size:14px; }
 .evolution-chart h3 { font-size:13px; }
 .evolution-chart > p { color:var(--muted); font-size:10px; margin-top:4px; }
 .evolution-chart .recharts-wrapper { margin-top:10px; }
-.evolution-timeline { margin-top:18px; padding-top:17px; border-top:1px solid var(--line); }
-.evolution-timeline .panel-heading { margin-bottom:14px; }
 .evolution-timeline .activity-item { padding-bottom:15px; }
 .history-columns { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr); gap:18px; margin-top:18px; }
 .history-columns > div { min-width:0; }
 .history-columns .evolution-timeline { margin-top:0; height:100%; }
+.history-window { min-width:0; }
+.history-window-toggle { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+.history-window-copy { min-width:0; display:flex; align-items:flex-start; gap:7px; }
+.history-window-copy > svg { flex:0 0 auto; margin-top:2px; color:var(--accent); }
+.history-window-copy > span { min-width:0; display:grid; gap:3px; }
+.history-window-copy strong { color:var(--text); font-size:14px; line-height:1.25; }
+.history-window-copy small { color:var(--muted); font-size:10px; line-height:1.35; }
+.history-window-meta { display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+.history-window-meta > svg { color:var(--muted); transition:transform .2s ease; }
+.history-window.is-open .history-window-meta > svg { transform:rotate(180deg); }
+.history-window-body { min-width:0; }
+.evolution-timeline { margin-top:18px; padding-top:17px; border-top:1px solid var(--line); }
+.evolution-timeline .history-window-body { margin-top:14px; }
 .member-employee-history { height:100%; padding:17px; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.018); }
-.member-employee-history .panel-heading { margin-bottom:14px; }
-.member-employee-history .panel-heading h3 { display:flex; align-items:center; gap:7px; font-size:14px; }
+.member-employee-history .history-window-body { margin-top:14px; }
 .member-history-empty { min-height:120px; }
 .section-gap { margin-top:18px; }
 .page-heading-actions { display:flex; gap:8px; flex-wrap:wrap; }
@@ -481,6 +491,13 @@ td small { display:flex; align-items:center; gap:4px; color:var(--muted); font-s
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width:1050px) { .metrics, .member-revenue-metrics, .member-dashboard-metrics { grid-template-columns:repeat(2,1fr); } .dashboard-grid { grid-template-columns:1fr; } .wide-grid { grid-column:auto; } }
 @media (max-width:850px) { .evolution-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .evolution-chart-grid { grid-template-columns:1fr; } .history-columns { grid-template-columns:1fr; } }
+@media (max-width:760px) {
+  .history-columns { gap:10px; margin-top:12px; }
+  .history-window-toggle { min-height:34px; }
+  .history-window-copy small { display:none; }
+  .history-window-meta .tag { font-size:9px; }
+  .history-window-body { overflow:hidden; }
+}
 @media (max-width:760px) { .sidebar { transform:translateX(-100%); transition:transform .25s ease; } .sidebar.open { transform:translateX(0); box-shadow:16px 0 50px rgba(0,0,0,.4); } .main { margin-left:0; } .topbar { padding:0 18px; } .mobile-menu { display:grid; } .breadcrumb { display:none; } .content { padding:27px 17px 38px; } .page-heading { margin-bottom:24px; } .page-heading .button { padding:9px 11px; } .page-heading .button span { display:none; } .page-heading-actions { justify-content:flex-end; } .metrics { gap:10px; margin-bottom:15px; } .metric-card { padding:15px; min-height:116px; } .metric-value { font-size:20px; } .metric-top { font-size:10px; } .dashboard-grid { gap:12px; } .panel { padding:16px; border-radius:14px; } .expense-import-panel { align-items:flex-start; padding:13px 14px; gap:10px; } .expense-import-panel .muted { display:none; } .wide-grid { grid-template-columns:1fr; gap:12px; } .top-actions { gap:7px; } .property-album { grid-template-columns:58px minmax(0,1fr) 58px; gap:7px; padding:8px 0 28px; } .album-main { height:210px; } .album-side { height:115px; } .album-caption { padding:28px 11px 11px; } .album-caption strong { font-size:12px; } .album-caption small { font-size:9px; } }
 
 /* Mobile app layout: keep every screen inside the device viewport and make dense areas touch-friendly. */
