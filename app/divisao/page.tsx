@@ -170,7 +170,7 @@ export default function DivisaoPage() {
   const [buildingFilter, setBuildingFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [occupancyFilter, setOccupancyFilter] = useState("all");
-  const [divisionFilter, setDivisionFilter] = useState("all");
+  const [divisionFilter, setDivisionFilter] = useState("available");
   const [query, setQuery] = useState("");
   const [keepShared, setKeepShared] = useState(true);
   const [suggestedAssignments, setSuggestedAssignments] = useState<Record<string, DivisionAssignment> | null>(null);
