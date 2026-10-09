@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowUpRight, Bell, Building2, Check, ChevronDown, CircleDollarSign, FileText, History, Home, Landmark, LayoutDashboard, LogOut, MapPinned, Menu, Receipt, Settings2, Users, WalletCards, X } from "lucide-react";
+import { ArrowUpRight, Bell, Building2, Check, ChevronDown, CircleDollarSign, FileText, GitBranch, History, Home, Landmark, LayoutDashboard, LogOut, MapPinned, Menu, Receipt, Settings2, Users, WalletCards, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { employeeRouteAllowed, memberRouteAllowed, roleLabels } from "@/lib/member-access";
@@ -19,6 +19,7 @@ const primaryNav = [
   { href: "/mapa", label: "Mapa", icon: MapPinned },
 ];
 const managementNav = [
+  { href: "/divisao", label: "Divisão", icon: GitBranch },
   { href: "/organizacao", label: "Organização", icon: Users },
   { href: "/documentos", label: "Documentos", icon: FileText },
   { href: "/configuracoes", label: "Configurações", icon: Settings2 },
