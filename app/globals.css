@@ -710,6 +710,7 @@ body { width:100%; overflow-x:hidden; -webkit-text-size-adjust:100%; }
 .division-destination:hover, .division-destination:has(.division-drop-placeholder:hover) { border-color:rgba(128,226,176,.3); }
 .shared-destination { grid-column:1 / -1; border-color:rgba(240,190,74,.28); background:linear-gradient(145deg,rgba(57,46,23,.36),rgba(14,19,29,.9)); }
 .division-destination-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:35px; }
+.division-destination-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:5px; }
 .division-destination-title { display:flex; align-items:center; min-width:0; gap:8px; }
 .destination-avatar { width:28px; height:28px; flex:0 0 auto; display:grid; place-items:center; border-radius:9px; color:#061018; }
 .division-destination-title div { min-width:0; display:grid; gap:3px; }
@@ -778,6 +779,7 @@ body { width:100%; overflow-x:hidden; -webkit-text-size-adjust:100%; }
 .division-access-card > svg { color:var(--accent); }
 .division-access-card p { max-width:360px; color:var(--muted); font-size:12px; line-height:1.5; }
 .division-suggestion-modal { width:min(100%,650px); }
+.division-transfer-modal { width:min(100%,520px); }
 .division-suggestion-modal .panel-heading { align-items:flex-start; }
 .division-suggestion-modal .panel-heading h2 { margin-top:7px; }
 .division-suggestion-modal .panel-heading p { max-width:470px; margin-top:7px; color:var(--muted); font-size:11px; line-height:1.5; }
