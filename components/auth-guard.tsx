@@ -17,8 +17,13 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     if (!supabase) { setLoading(false); return; }
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
+    supabase.auth.getSession().then(({ data }) => {
+      setSession((current) => current?.user.id === data.session?.user.id ? current : data.session);
+      setLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession((current) => current?.user.id === nextSession?.user.id ? current : nextSession);
+    });
     return () => listener.subscription.unsubscribe();
   }, []);
 

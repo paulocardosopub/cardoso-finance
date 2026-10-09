@@ -152,8 +152,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     if (!supabase) { setValue((current) => ({ ...current, loading: false, error: "Supabase não configurado." })); return; }
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setSessionResolved(true); });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
+    supabase.auth.getSession().then(({ data }) => {
+      setSession((current) => current?.user.id === data.session?.user.id ? current : data.session);
+      setSessionResolved(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => {
+      setSession((current) => current?.user.id === next?.user.id ? current : next);
+    });
     return () => listener.subscription.unsubscribe();
   }, []);
 
@@ -163,9 +168,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     // Interactive view changes clear the previous role before loading. Background
     // refreshes keep the current screen and scroll position stable.
     if (!options?.silent) setValue((current) => ({ ...current, organizationId: null, organizationName: "Cardoso Finance", holdings: [], previewMembers: [], role: "viewer", actualRole: "viewer", memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: true, error: "" }));
-    const membershipsResult = await supabase.from("organization_members").select("organization_id, role, joined_at, is_primary").eq("user_id", session.user.id).order("joined_at", { ascending: true });
+    const [membershipsResult, profile] = await Promise.all([
+      supabase.from("organization_members").select("organization_id, role, joined_at, is_primary").eq("user_id", session.user.id).order("joined_at", { ascending: true }),
+      supabase.from("profiles").select("full_name, phone, avatar_url").eq("id", session.user.id).maybeSingle(),
+    ]);
     if (membershipsResult.error) { setValue((current) => ({ ...current, loading: false, error: membershipsResult.error.message })); return; }
-    const profile = await supabase.from("profiles").select("full_name, phone, avatar_url").eq("id", session.user.id).maybeSingle();
     const profileName = profile.data?.full_name ? String(profile.data.full_name) : undefined;
     const profilePhone = profile.data?.phone ? String(profile.data.phone) : "";
     const profileAvatar = profile.data?.avatar_url ? String(profile.data.avatar_url) : "";
@@ -185,8 +192,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const selectedMembership = holdings.find((holding) => holding.id === activeOrganizationId) ?? holdings.find((holding) => holding.isPrimary) ?? holdings[0];
     const organizationId = selectedMembership.id;
     const actualRole = selectedMembership.role;
+    const selectedOrganizationName = organizationNames.get(organizationId) ?? "Cardoso Finance";
     const previewAllowed = actualRole === "owner" || actualRole === "admin" || actualRole === "manager";
-    let previewMembersResult = previewAllowed ? await supabase.rpc("list_preview_members", { target_org: organizationId }) : null;
+    const [previewMembersResponse, invitationsResult] = await Promise.all([
+      previewAllowed ? supabase.rpc("list_preview_members", { target_org: organizationId }) : Promise.resolve(null),
+      selectedMembership.role === "viewer" ? Promise.resolve(null) : supabase.rpc("list_my_invitations"),
+    ]);
+    let previewMembersResult = previewMembersResponse;
     // Keep older deployments compatible while the idempotent preview function
     // is being rolled out to the database.
     if (previewMembersResult?.error) previewMembersResult = await supabase.rpc("list_organization_members", { target_org: organizationId });
@@ -200,15 +212,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       : viewAs === "employee" ? (previewAllowed ? (selectedEmployee ? previewRef(selectedEmployee) : employeeMembers[0] ? previewRef(employeeMembers[0]) : null) : null)
       : null;
     const effectiveRole: MemberRole = previewAllowed && viewAs === "viewer" ? "viewer" : previewAllowed && viewAs === "employee" ? "employee" : actualRole;
-    const invitationsResult = selectedMembership.role === "viewer" ? null : await supabase.rpc("list_my_invitations");
     const pendingInvitations = invitationsResult && !invitationsResult.error ? mapPendingInvitations(invitationsResult.data) : [];
     if (organizationId !== activeOrganizationId) { setActiveOrganizationId(organizationId); window.localStorage.setItem("cardoso-active-organization", organizationId); }
-    const organization = await supabase.from("organizations").select("name").eq("id", organizationId).single();
     if (effectiveRole === "employee") {
       const employeeResult = await supabase.rpc("get_employee_portfolio", { target_org: organizationId });
       if (employeeResult.error) { setValue((current) => ({ ...current, organizationId, holdings, pendingInvitations, role: "employee", loading: false, error: employeeResult.error.message })); return; }
       const employeeData = (employeeResult.data ?? {}) as Record<string, unknown>;
-      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "employee", actualRole, viewAs, viewAsMemberId: selectedPreviewMemberId, previewMembers, memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: mapEmployeeBuildings((employeeData.buildings ?? []) as Array<Record<string, unknown>>), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
+      setValue({ organizationId, organizationName: selectedOrganizationName, userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "employee", actualRole, viewAs, viewAsMemberId: selectedPreviewMemberId, previewMembers, memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: mapEmployeeBuildings((employeeData.buildings ?? []) as Array<Record<string, unknown>>), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
       return;
     }
     if (effectiveRole === "viewer") {
@@ -244,7 +254,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       // Keep it intact so the member's property list is not scaled by expenses.
       const rentFactor = 1;
       const ownershipSummary = ((memberData.ownership ?? []) as Array<Record<string, unknown>>).map((item) => ({ name: String(item.name ?? "Membro"), percentage: Number(item.percentage ?? 0) }));
-      setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "viewer", actualRole, viewAs, viewAsMemberId: selectedPreviewMemberId, previewMembers, memberVisibility, memberSummary, ownershipSummary, buildings: mapMemberBuildings((memberData.buildings ?? []) as Array<Record<string, unknown>>, rentFactor), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
+      setValue({ organizationId, organizationName: selectedOrganizationName, userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: "viewer", actualRole, viewAs, viewAsMemberId: selectedPreviewMemberId, previewMembers, memberVisibility, memberSummary, ownershipSummary, buildings: mapMemberBuildings((memberData.buildings ?? []) as Array<Record<string, unknown>>, rentFactor), expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [], loading: false, error: "" });
       return;
     }
     const [assetsResult, buildingsResult, unitsResult, leasesResult, tenantsResult, expensesResult, expenseResponsibilitiesResult, notificationsResult, leasePaymentsResult, revenueCreditsResult, distributionsResult, distributionItemsResult, bankAccountResult, visibilityResult] = await Promise.all([
@@ -323,7 +333,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const paidExpenses = expenses.filter((expense) => new Date(`${expense.expense_date}T12:00:00`) <= new Date()).reduce((total, expense) => total + Number(expense.value || 0), 0);
     const bankBalance = (bankAccount?.initialBalance ?? 0) + paidRent + saleCredits - paidExpenses - paidDistributions - historicalIndividualBenefits;
     const memberSummary = { totalValue: mappedBuildings.filter((building) => building.status !== "vendido").reduce((sum, building) => sum + building.value, 0), holdingTotalValue: 0, totalBuildings: mappedBuildings.filter((building) => building.status !== "vendido").length, totalUnits: mappedBuildings.reduce((sum, building) => sum + building.units, 0), totalRent: mappedBuildings.reduce((sum, building) => sum + building.revenue, 0), ownershipPercentage: 0 };
-    setValue({ organizationId, organizationName: String(organization.data?.name ?? "Cardoso Finance"), userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: effectiveRole, actualRole, viewAs, viewAsMemberId: selectedPreviewMemberId, previewMembers, memberVisibility: visibilityFromRow(visibilityResult.data as Record<string, unknown> | null), memberSummary, ownershipSummary: [], buildings: mappedBuildings, expenses, leasePayments, distributions, bankAccount, bankBalance, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
+    setValue({ organizationId, organizationName: selectedOrganizationName, userName: displayName(session, profileName), userInitials: initials(session, profileName), userEmail: profileEmail, userPhone: profilePhone, userAvatarUrl: profileAvatar, holdings, pendingInvitations, role: effectiveRole, actualRole, viewAs, viewAsMemberId: selectedPreviewMemberId, previewMembers, memberVisibility: visibilityFromRow(visibilityResult.data as Record<string, unknown> | null), memberSummary, ownershipSummary: [], buildings: mappedBuildings, expenses, leasePayments, distributions, bankAccount, bankBalance, monthlyExpenses, monthlyProfit, notifications: ((notificationsResult.data ?? []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), type: (String(item.type) as NotificationItem["type"]), title: String(item.title), message: String(item.message), dueDate: String(item.due_date), status: String(item.status), entityId: item.entity_id ? String(item.entity_id) : undefined })), loading: false, error: "" });
   }, [activeOrganizationId, session, viewAs, viewAsMemberId]);
 
   useEffect(() => { if (!sessionResolved) return; if (session) void refresh(); else setValue((current) => ({ ...current, loading: false, organizationId: null, holdings: [], pendingInvitations: [], memberVisibility: defaultMemberVisibility, memberSummary: { totalValue: 0, holdingTotalValue: 0, totalBuildings: 0, totalUnits: 0, totalRent: 0, ownershipPercentage: 0 }, ownershipSummary: [], buildings: [], expenses: [], leasePayments: [], distributions: [], bankAccount: null, bankBalance: 0, monthlyExpenses: 0, monthlyProfit: 0, notifications: [] })); }, [refresh, session, sessionResolved]);
@@ -337,7 +347,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "property_units", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
       .on("postgres_changes", { event: "*", schema: "public", table: "leases", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
       .subscribe();
-    const onFocus = () => { void refresh({ silent: true }); };
+    let lastFocusRefresh = 0;
+    const onFocus = () => {
+      const now = Date.now();
+      if (now - lastFocusRefresh < 5000) return;
+      lastFocusRefresh = now;
+      window.setTimeout(() => { if (document.visibilityState === "visible") void refresh({ silent: true }); }, 0);
+    };
     window.addEventListener("focus", onFocus);
     return () => { window.removeEventListener("focus", onFocus); void supabase.removeChannel(channel); };
   }, [refresh, session, value.organizationId]);
