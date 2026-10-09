@@ -12,6 +12,7 @@ export type DivisionUnit = {
   id: string;
   buildingId: string;
   buildingName: string;
+  buildingValue?: number | null;
   code: string;
   type: string;
   value: number | null;
