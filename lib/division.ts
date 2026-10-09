@@ -51,6 +51,11 @@ export type DivisionMetrics = {
   consolidatedBalance: number | null;
 };
 
+export type DivisionSuggestionPriorities = {
+  value: boolean;
+  rent: boolean;
+};
+
 function valueOf(unit: DivisionUnit) {
   return unit.value ?? 0;
 }
@@ -111,32 +116,42 @@ export function calculateDivision(units: DivisionUnit[], assignments: Record<str
   };
 }
 
-function projectedPenalty(units: DivisionUnit[], assignments: Record<string, DivisionAssignment>) {
+function projectedPenalty(units: DivisionUnit[], assignments: Record<string, DivisionAssignment>, priorities: DivisionSuggestionPriorities) {
   const metrics = calculateDivision(units, assignments);
   const valuePenalty = metrics.memberTargetValue > 0 ? averageDeviation(metrics.members.map((member) => member.value), metrics.memberTargetValue) : 0;
   const rentPenalty = metrics.memberTargetRent > 0 ? averageDeviation(metrics.members.map((member) => member.rent), metrics.memberTargetRent) : 0;
   const counts = metrics.members.map((member) => member.units);
   const averageCount = counts.reduce((sum, count) => sum + count, 0) / counts.length;
   const countPenalty = averageCount > 0 ? averageDeviation(counts, averageCount) : 0;
-  return valuePenalty * 0.5 + rentPenalty * 0.4 + countPenalty * 0.1;
+  const valueWeight = priorities.value && priorities.rent ? 0.45 : priorities.value ? 0.8 : 0;
+  const rentWeight = priorities.value && priorities.rent ? 0.45 : priorities.rent ? 0.8 : 0;
+  const countWeight = priorities.value || priorities.rent ? 0.1 : 1;
+  return valuePenalty * valueWeight + rentPenalty * rentWeight + countPenalty * countWeight;
 }
 
-/** Greedy proposal that minimizes normalized patrimony, rent and unit-count deviations. */
-export function suggestDivision(units: DivisionUnit[], current: Record<string, DivisionAssignment>, keepShared = true) {
+function priorityScore(unit: DivisionUnit, units: DivisionUnit[], priorities: DivisionSuggestionPriorities) {
+  const totalValue = units.reduce((sum, item) => sum + valueOf(item), 0);
+  const totalRent = units.reduce((sum, item) => sum + item.rent, 0);
+  const totalQuantity = units.reduce((sum, item) => sum + item.quantity, 0);
+  const valueScore = totalValue > 0 ? valueOf(unit) / totalValue : 0;
+  const rentScore = totalRent > 0 ? unit.rent / totalRent : 0;
+  const countScore = totalQuantity > 0 ? unit.quantity / totalQuantity : 0;
+  if (!priorities.value && !priorities.rent) return countScore;
+  return (priorities.value ? valueScore : 0) + (priorities.rent ? rentScore : 0) + countScore * 0.1;
+}
+
+/** Greedy proposal that minimizes the selected normalized priority deviations. */
+export function suggestDivision(units: DivisionUnit[], current: Record<string, DivisionAssignment>, keepShared = true, priorities: DivisionSuggestionPriorities = { value: true, rent: true }) {
   const next: Record<string, DivisionAssignment> = {};
   const fixed = keepShared ? units.filter((unit) => current[unit.id] === "shared") : [];
   for (const unit of units) next[unit.id] = fixed.some((fixedUnit) => fixedUnit.id === unit.id) ? "shared" : null;
-  const candidates = units.filter((unit) => !fixed.some((fixedUnit) => fixedUnit.id === unit.id)).sort((left, right) => {
-    const leftWeight = valueOf(left) + left.rent * 12;
-    const rightWeight = valueOf(right) + right.rent * 12;
-    return rightWeight - leftWeight;
-  });
+  const candidates = units.filter((unit) => !fixed.some((fixedUnit) => fixedUnit.id === unit.id)).sort((left, right) => priorityScore(right, units, priorities) - priorityScore(left, units, priorities));
   for (const unit of candidates) {
     let best: DivisionMemberId = divisionMembers[0].id;
     let bestPenalty = Number.POSITIVE_INFINITY;
     for (const member of divisionMembers) {
       next[unit.id] = member.id;
-      const penalty = projectedPenalty(units, next);
+      const penalty = projectedPenalty(units, next, priorities);
       if (penalty < bestPenalty) { best = member.id; bestPenalty = penalty; }
     }
     next[unit.id] = best;

@@ -6,7 +6,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer,
 import { usePortfolio } from "@/components/portfolio-provider";
 import { brl, compactBrl } from "@/lib/format";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
-import { calculateDivision, divisionMembers, suggestDivision, type DivisionAssignment, type DivisionMemberId, type DivisionMetrics, type DivisionUnit } from "@/lib/division";
+import { calculateDivision, divisionMembers, suggestDivision, type DivisionAssignment, type DivisionMemberId, type DivisionMetrics, type DivisionSuggestionPriorities, type DivisionUnit } from "@/lib/division";
 
 type Simulation = { id: string; name: string; updatedAt: string; allocationMode: "unit" | "building" };
 type RawRow = Record<string, unknown>;
@@ -18,7 +18,8 @@ type TransferContextValue = {
   setTarget: (target: DivisionMemberId) => void;
   cancel: () => void;
   confirm: () => void;
-  unitCount: number;
+  sourceUnitCount: number;
+  targetUnitCount: number;
 };
 const TransferContext = createContext<TransferContextValue | null>(null);
 
@@ -160,6 +161,7 @@ export default function DivisaoPage() {
   const [keepShared, setKeepShared] = useState(true);
   const [suggestedAssignments, setSuggestedAssignments] = useState<Record<string, DivisionAssignment> | null>(null);
   const [suggestionMode, setSuggestionMode] = useState<"unit" | "building">("unit");
+  const [suggestionPriorities, setSuggestionPriorities] = useState<DivisionSuggestionPriorities>({ value: true, rent: true });
   const [transferSource, setTransferSource] = useState<DivisionMemberId | null>(null);
   const [transferTarget, setTransferTarget] = useState<DivisionMemberId | null>(null);
   const [loadingData, setLoadingData] = useState(true);
@@ -405,9 +407,9 @@ export default function DivisaoPage() {
     setAssignments({}); setDirty(true); setSelectedInventoryId(null); setMessage("Distribuição limpa. Salve para registrar este estado.");
   }
 
-  function buildSuggestion(mode: "unit" | "building", keepSharedValue = keepShared) {
+  function buildSuggestion(mode: "unit" | "building", keepSharedValue = keepShared, priorities = suggestionPriorities) {
     const model = calculationModel(units, assignments, mode);
-    const suggested = suggestDivision(model.units, model.assignments, keepSharedValue);
+    const suggested = suggestDivision(model.units, model.assignments, keepSharedValue, priorities);
     return expandCalculationAssignments(units, suggested, mode);
   }
 
@@ -426,10 +428,20 @@ export default function DivisaoPage() {
     setTransferSource(source); setTransferTarget(target);
   }
 
-  function transferAll() {
+  function swapAll() {
     if (!transferSource || !transferTarget || transferSource === transferTarget) return;
-    const unitIds = assignedByDestination[transferSource].map((unit) => unit.id);
-    updateAssignments(unitIds, transferTarget);
+    const sourceUnits = assignedByDestination[transferSource];
+    const targetUnits = assignedByDestination[transferTarget];
+    setAssignments((current) => {
+      const next = { ...current };
+      for (const unit of sourceUnits) next[unit.id] = transferTarget;
+      for (const unit of targetUnits) next[unit.id] = transferSource;
+      return next;
+    });
+    setDirty(true); setSelectedInventoryId(null); setDraggingUnitIds([]);
+    const sourceName = divisionMembers.find((member) => member.id === transferSource)?.name ?? "Membro";
+    const targetName = divisionMembers.find((member) => member.id === transferTarget)?.name ?? "Membro";
+    setMessage(`Troca concluída: ${sourceName} recebeu as atribuições de ${targetName} e vice-versa.`);
     setTransferSource(null); setTransferTarget(null);
   }
 
@@ -439,8 +451,9 @@ export default function DivisaoPage() {
     target: transferTarget,
     setTarget: (target) => setTransferTarget(target),
     cancel: () => { setTransferSource(null); setTransferTarget(null); },
-    confirm: transferAll,
-    unitCount: transferSource ? assignedByDestination[transferSource].reduce((sum, unit) => sum + unit.quantity, 0) : 0,
+    confirm: swapAll,
+    sourceUnitCount: transferSource ? assignedByDestination[transferSource].reduce((sum, unit) => sum + unit.quantity, 0) : 0,
+    targetUnitCount: transferTarget ? assignedByDestination[transferTarget].reduce((sum, unit) => sum + unit.quantity, 0) : 0,
   };
 
   if (loading || loadingData) return <div className="content"><div className="empty-state"><Scale size={28} /><p>Carregando a central de divisão...</p></div></div>;
@@ -456,7 +469,7 @@ export default function DivisaoPage() {
     <section className="panel division-balance-panel"><div className="panel-heading"><div><h2>Equilíbrio da divisão</h2><p>Desvio médio absoluto de cada membro em relação à meta de 25%. Quanto maior, mais próximo do equilíbrio.</p></div><div className={`division-score ${scoreTone(metrics.consolidatedBalance)}`}><small>Consolidado · 50% patrimônio + 50% renda</small><strong>{scoreLabel(metrics.consolidatedBalance)}</strong></div></div><div className="division-balance-grid"><BalanceScore label="Equilíbrio patrimonial" score={metrics.propertyBalance} target={metrics.memberTargetValue} value={brl(metrics.memberTargetValue)} /><BalanceScore label="Equilíbrio de renda" score={metrics.incomeBalance} target={metrics.memberTargetRent} value={brl(metrics.memberTargetRent)} /></div><details className="division-methodology"><summary><CircleHelp size={14} /> Como o indicador é calculado</summary><p>Para cada dimensão, calculamos o desvio percentual absoluto de cada membro em relação à meta de 25%, fazemos a média e aplicamos <strong>100 − desvio médio</strong>, limitado entre 0% e 100%. O consolidado usa pesos iguais entre patrimônio e renda. Imóveis compartilhados entram com 25% em cada membro.</p></details></section>
     <section className="division-comparison-grid"><ChartPanel title="Patrimônio por membro" subtitle="Participação no patrimônio distribuído e compartilhado." data={propertyChart} dataKey="share" valueKey="amount" /><ChartPanel title="Renda mensal por membro" subtitle="Participação na renda mensal prevista." data={incomeChart} dataKey="share" valueKey="rent" /></section>
     <section className="panel division-table-panel"><div className="panel-heading"><div><h2>Comparativo entre membros</h2><p>Valores individuais já incorporam a fração de 25% dos imóveis compartilhados.</p></div></div><div className="table-wrap"><table className="division-table"><thead><tr><th>Membro</th><th>Patrimônio</th><th>% do total</th><th>Diferença da meta</th><th>Renda mensal</th><th>Diferença da meta</th></tr></thead><tbody>{metrics.members.map((member) => <tr key={member.id}><td><span className="division-member-name"><span className="member-color" style={{ background: member.color }} />{member.name}</span></td><td><strong>{brl(member.value)}</strong></td><td>{member.share.toFixed(1)}%</td><td className={member.valueDifference >= 0 ? "positive" : "negative"}>{member.valueDifference >= 0 ? "+" : "−"}{brl(Math.abs(member.valueDifference))}</td><td><strong>{brl(member.rent)}</strong></td><td className={member.rentDifference >= 0 ? "positive" : "negative"}>{member.rentDifference >= 0 ? "+" : "−"}{brl(Math.abs(member.rentDifference))}</td></tr>)}</tbody></table></div></section>
-    {suggestedAssignments && <div className="modal-backdrop"><div className="edit-modal division-suggestion-modal"><div className="panel-heading"><div><div className="eyebrow"><BarChart3 size={13} /> Proposta automática</div><h2>Aplicar sugestão equilibrada?</h2><p>{suggestionMode === "building" ? "A proposta considera prédios inteiros usando patrimônio, renda e quantidade." : "A proposta reorganiza unidades individuais usando patrimônio, renda e quantidade."} O que já está compartilhado {keepShared ? "será mantido compartilhado" : "também poderá ser redistribuído"}.</p></div><button className="icon-btn" onClick={() => setSuggestedAssignments(null)} aria-label="Fechar"><X size={16} /></button></div><div className="suggestion-preview"><SuggestionPreview label="Estado atual" metrics={metrics} /><SuggestionPreview label="Após a sugestão" metrics={metricsForAssignments(suggestedAssignments, suggestionMode)} /></div><div className="division-suggestion-options"><label className="checkbox-field"><input type="checkbox" checked={suggestionMode === "building"} onChange={(event) => { const nextMode = event.target.checked ? "building" : "unit"; setSuggestionMode(nextMode); setSuggestedAssignments(buildSuggestion(nextMode)); }} /> Considerar imóveis/prédios inteiros nesta sugestão</label><label className="checkbox-field"><input type="checkbox" checked={keepShared} onChange={(event) => { const nextKeepShared = event.target.checked; setKeepShared(nextKeepShared); setSuggestedAssignments(buildSuggestion(suggestionMode, nextKeepShared)); }} /> Manter imóveis compartilhados fixos</label></div><div className="onboarding-actions"><button className="button button-ghost" onClick={() => setSuggestedAssignments(null)}>Cancelar</button><button className="button button-primary" onClick={() => { setDivisionMode(suggestionMode); setAssignments(suggestedAssignments); setSelectedInventoryId(null); setSuggestedAssignments(null); setDirty(true); setMessage("Sugestão aplicada. Revise e salve quando estiver pronto."); }}><Check size={14} /> Aplicar proposta</button></div></div></div>}
+    {suggestedAssignments && <div className="modal-backdrop"><div className="edit-modal division-suggestion-modal"><div className="panel-heading"><div><div className="eyebrow"><BarChart3 size={13} /> Proposta automática</div><h2>Aplicar sugestão equilibrada?</h2><p>{suggestionMode === "building" ? "A proposta considera prédios inteiros." : "A proposta reorganiza unidades individuais."} {suggestionPriorities.value && suggestionPriorities.rent ? "Ela prioriza patrimônio e renda mensal." : suggestionPriorities.value ? "Ela prioriza o valor dos imóveis." : suggestionPriorities.rent ? "Ela prioriza a renda mensal." : "Ela busca equilibrar a quantidade de unidades."} O que já está compartilhado {keepShared ? "será mantido compartilhado" : "também poderá ser redistribuído"}.</p></div><button className="icon-btn" onClick={() => setSuggestedAssignments(null)} aria-label="Fechar"><X size={16} /></button></div><div className="suggestion-preview"><SuggestionPreview label="Estado atual" metrics={metrics} /><SuggestionPreview label="Após a sugestão" metrics={metricsForAssignments(suggestedAssignments, suggestionMode)} /></div><div className="division-suggestion-options"><label className="checkbox-field"><input type="checkbox" checked={suggestionPriorities.value} onChange={(event) => { const nextPriorities = { ...suggestionPriorities, value: event.target.checked }; setSuggestionPriorities(nextPriorities); setSuggestedAssignments(buildSuggestion(suggestionMode, keepShared, nextPriorities)); }} /> Priorizar valor dos imóveis</label><label className="checkbox-field"><input type="checkbox" checked={suggestionPriorities.rent} onChange={(event) => { const nextPriorities = { ...suggestionPriorities, rent: event.target.checked }; setSuggestionPriorities(nextPriorities); setSuggestedAssignments(buildSuggestion(suggestionMode, keepShared, nextPriorities)); }} /> Priorizar renda mensal</label><label className="checkbox-field"><input type="checkbox" checked={suggestionMode === "building"} onChange={(event) => { const nextMode = event.target.checked ? "building" : "unit"; setSuggestionMode(nextMode); setSuggestedAssignments(buildSuggestion(nextMode, keepShared, suggestionPriorities)); }} /> Considerar imóveis/prédios inteiros nesta sugestão</label><label className="checkbox-field"><input type="checkbox" checked={keepShared} onChange={(event) => { const nextKeepShared = event.target.checked; setKeepShared(nextKeepShared); setSuggestedAssignments(buildSuggestion(suggestionMode, nextKeepShared, suggestionPriorities)); }} /> Manter imóveis compartilhados fixos</label></div><div className="onboarding-actions"><button className="button button-ghost" onClick={() => setSuggestedAssignments(null)}>Cancelar</button><button className="button button-primary" onClick={() => { setDivisionMode(suggestionMode); setAssignments(suggestedAssignments); setSelectedInventoryId(null); setSuggestedAssignments(null); setDirty(true); setMessage("Sugestão aplicada. Revise e salve quando estiver pronto."); }}><Check size={14} /> Aplicar proposta</button></div></div></div>}
   </div></TransferContext.Provider>;
 }
 
@@ -479,7 +492,8 @@ function InventoryBuildingCard({ name, units, assignments, selected, onSelect, o
 function TransferDialog({ transfer }: { transfer: TransferContextValue }) {
   if (!transfer.source) return null;
   const sourceName = divisionMembers.find((member) => member.id === transfer.source)?.name ?? "Membro";
-  return <div className="modal-backdrop"><section className="edit-modal division-transfer-modal"><div className="panel-heading"><div><div className="eyebrow"><ArrowRightLeft size={13} /> Redistribuição em lote</div><h2>Trocar imóveis atribuídos</h2><p>Transfira todas as {transfer.unitCount} unidades atualmente atribuídas a {sourceName} para outro membro.</p></div><button className="icon-btn" onClick={transfer.cancel} aria-label="Fechar"><X size={16} /></button></div><label>Transferir para<select value={transfer.target ?? ""} onChange={(event) => transfer.setTarget(event.target.value as DivisionMemberId)}>{divisionMembers.filter((member) => member.id !== transfer.source).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={transfer.cancel}>Cancelar</button><button type="button" className="button button-primary" onClick={transfer.confirm} disabled={!transfer.target}><ArrowRightLeft size={14} /> Confirmar troca</button></div></section></div>;
+  const targetName = divisionMembers.find((member) => member.id === transfer.target)?.name ?? "outro membro";
+  return <div className="modal-backdrop"><section className="edit-modal division-transfer-modal"><div className="panel-heading"><div><div className="eyebrow"><ArrowRightLeft size={13} /> Troca em lote</div><h2>Trocar imóveis atribuídos</h2><p>{sourceName} receberá as {transfer.targetUnitCount} unidades de {targetName}, e {targetName} receberá as {transfer.sourceUnitCount} unidades de {sourceName}.</p></div><button className="icon-btn" onClick={transfer.cancel} aria-label="Fechar"><X size={16} /></button></div><label>Trocar com<select value={transfer.target ?? ""} onChange={(event) => transfer.setTarget(event.target.value as DivisionMemberId)}>{divisionMembers.filter((member) => member.id !== transfer.source).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={transfer.cancel}>Cancelar</button><button type="button" className="button button-primary" onClick={transfer.confirm} disabled={!transfer.target}><ArrowRightLeft size={14} /> Confirmar troca</button></div></section></div>;
 }
 
 function DestinationCard({ destination, units, metrics, divisionMode, selectedUnitId, onDrop, onSelectDestination, onDragStart, onRemove }: { destination: Destination; units: DivisionUnit[]; metrics: DivisionMetrics; divisionMode: "unit" | "building"; selectedUnitId: string | null; onDrop: (destination: Destination, event: React.DragEvent<HTMLDivElement>) => void; onSelectDestination: () => void; onDragStart: (event: React.DragEvent<HTMLDivElement>, unitId: string) => void; onRemove: (unitId: string) => void }) {
