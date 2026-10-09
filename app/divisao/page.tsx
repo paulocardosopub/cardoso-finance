@@ -102,7 +102,7 @@ function mapDivisionUnits(assets: RawRow[], buildings: RawRow[], sourceUnits: Ra
       value: positiveNumber(building.current_value) ?? positiveNumber(asset?.current_value),
     });
   }
-  return sourceUnits.filter((unit) => activeBuildings.has(String(unit.building_id)) && String(unit.status) !== "sold").map((unit): DivisionUnit => {
+  const mappedUnits = sourceUnits.filter((unit) => activeBuildings.has(String(unit.building_id)) && String(unit.status) !== "sold").map((unit): DivisionUnit => {
     const building = activeBuildings.get(String(unit.building_id))!;
     const lease = leasesByUnit.get(String(unit.id));
     const individualValue = positiveNumber(unit.estimated_value);
@@ -113,6 +113,20 @@ function mapDivisionUnits(assets: RawRow[], buildings: RawRow[], sourceUnits: Ra
       rent: Math.max(0, Number(rent ?? 0)), status: String(unit.status ?? "vacant"), quantity: Math.max(1, Number(unit.quantity ?? 1)),
     };
   });
+  const unitsByBuilding = new Map<string, DivisionUnit[]>();
+  for (const unit of mappedUnits) unitsByBuilding.set(unit.buildingId, [...(unitsByBuilding.get(unit.buildingId) ?? []), unit]);
+  for (const buildingUnits of unitsByBuilding.values()) {
+    const currentBuildingValue = buildingUnits[0]?.buildingValue ?? null;
+    if (currentBuildingValue == null) continue;
+    const totalIndividualValue = buildingUnits.reduce((sum, unit) => sum + (unit.value ?? 0), 0);
+    const hasCompleteIndividualValues = buildingUnits.every((unit) => (unit.value ?? 0) > 0);
+    const totalQuantity = buildingUnits.reduce((sum, unit) => sum + unit.quantity, 0);
+    for (const unit of buildingUnits) {
+      const weight = hasCompleteIndividualValues && totalIndividualValue > 0 ? (unit.value ?? 0) / totalIndividualValue : unit.quantity / totalQuantity;
+      unit.value = currentBuildingValue * weight;
+    }
+  }
+  return mappedUnits;
 }
 
 function calculationModel(units: DivisionUnit[], assignments: Record<string, DivisionAssignment>, mode: "unit" | "building") {
