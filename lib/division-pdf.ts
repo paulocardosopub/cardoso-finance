@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { brl } from "@/lib/format";
-import { divisionMembers, type DivisionAssignment, type DivisionMetrics, type DivisionUnit, type EqualizationTransfer } from "@/lib/division";
+import { divisionMembers, type DivisionAssignment, type DivisionMember, type DivisionMetrics, type DivisionUnit, type EqualizationTransfer } from "@/lib/division";
 
 type PdfDocument = jsPDF & { lastAutoTable?: { finalY: number } };
 
@@ -14,7 +14,7 @@ function fileName(value: string) {
   return normalized || "divisao-patrimonial";
 }
 
-export function downloadDivisionPdf({ simulationName, metrics, transfers, units, assignments, divisionMode }: { simulationName: string; metrics: DivisionMetrics; transfers: EqualizationTransfer[]; units: DivisionUnit[]; assignments: Record<string, DivisionAssignment>; divisionMode: "unit" | "building" }) {
+export function downloadDivisionPdf({ simulationName, metrics, members = divisionMembers, transfers, units, assignments, divisionMode }: { simulationName: string; metrics: DivisionMetrics; members?: DivisionMember[]; transfers: EqualizationTransfer[]; units: DivisionUnit[]; assignments: Record<string, DivisionAssignment>; divisionMode: "unit" | "building" }) {
   const doc = new jsPDF({ unit: "mm", format: "a4" }) as PdfDocument;
   const margin = 14;
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -78,7 +78,7 @@ export function downloadDivisionPdf({ simulationName, metrics, transfers, units,
     ? transfers.map((transfer) => [transfer.fromName, transfer.toName, brl(transfer.amount)])
     : [["Divisão já igualitária", "-", brl(0)]]);
 
-  const assignmentName = (assignment: DivisionAssignment) => assignment === "shared" ? "Compartilhado" : divisionMembers.find((member) => member.id === assignment)?.name ?? "Pendente";
+  const assignmentName = (assignment: DivisionAssignment) => assignment === "shared" ? "Compartilhado" : members.find((member) => member.id === assignment)?.name ?? "Pendente";
   const allocationRows = divisionMode === "building"
     ? [...new Map(units.map((unit) => [unit.buildingId, units.filter((item) => item.buildingId === unit.buildingId)])).values()].map((buildingUnits) => {
       const firstAssignment = assignments[buildingUnits[0]?.id] ?? null;

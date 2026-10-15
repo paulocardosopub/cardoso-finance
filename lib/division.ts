@@ -1,12 +1,29 @@
-export const divisionMembers = [
-  { id: "paulo", name: "Paulo", color: "#80e2b0" },
-  { id: "pedro", name: "Pedro", color: "#62b6ff" },
-  { id: "aurora", name: "Aurora", color: "#c59cff" },
-  { id: "carlos", name: "Carlos", color: "#f0be4a" },
-] as const;
+const memberColors = ["#80e2b0", "#62b6ff", "#c59cff", "#f0be4a", "#ff8fa3", "#8ed1fc", "#b8e986", "#f7b267", "#d0a2f7", "#7bdff2"];
 
-export type DivisionMemberId = (typeof divisionMembers)[number]["id"];
+export type DivisionMemberId = string;
+export type DivisionMember = { id: DivisionMemberId; name: string; color: string };
 export type DivisionAssignment = DivisionMemberId | "shared" | null;
+
+export function createDefaultDivisionMembers(count = 4): DivisionMember[] {
+  const safeCount = Math.max(1, Math.min(10, Math.round(count)));
+  return Array.from({ length: safeCount }, (_, index) => ({ id: `member-${index + 1}`, name: `Membro ${index + 1}`, color: memberColors[index % memberColors.length] }));
+}
+
+export function normalizeDivisionMembers(value: unknown, fallbackCount = 4): DivisionMember[] {
+  if (!Array.isArray(value)) return createDefaultDivisionMembers(fallbackCount);
+  const members = value.map((item, index) => {
+    const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    return {
+      id: typeof row.id === "string" && row.id.trim() ? row.id : `member-${index + 1}`,
+      name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : `Membro ${index + 1}`,
+      color: typeof row.color === "string" && row.color.trim() ? row.color : memberColors[index % memberColors.length],
+    };
+  }).slice(0, 10);
+  return members.length ? members : createDefaultDivisionMembers(fallbackCount);
+}
+
+/** Legacy fallback used by PDF helpers and older integrations. New scenarios use their own member list. */
+export const divisionMembers = createDefaultDivisionMembers(4);
 
 export type DivisionUnit = {
   id: string;
@@ -51,10 +68,7 @@ export type DivisionMetrics = {
   consolidatedBalance: number | null;
 };
 
-export type DivisionSuggestionPriorities = {
-  value: boolean;
-  rent: boolean;
-};
+export type DivisionSuggestionPriorities = { value: boolean; rent: boolean };
 
 export type EqualizationTransfer = {
   fromId: DivisionMemberId;
@@ -69,7 +83,7 @@ function valueOf(unit: DivisionUnit) {
 }
 
 function averageDeviation(values: number[], target: number) {
-  if (target <= 0) return 0;
+  if (target <= 0 || !values.length) return 0;
   return values.reduce((sum, value) => sum + Math.abs(value - target) / target, 0) / values.length;
 }
 
@@ -78,7 +92,8 @@ function balanceScore(values: number[], target: number) {
   return Math.max(0, Math.min(100, (1 - averageDeviation(values, target)) * 100));
 }
 
-export function calculateDivision(units: DivisionUnit[], assignments: Record<string, DivisionAssignment>): DivisionMetrics {
+export function calculateDivision(units: DivisionUnit[], assignments: Record<string, DivisionAssignment>, members: DivisionMember[] = divisionMembers): DivisionMetrics {
+  const activeMembers = members.length ? members : createDefaultDivisionMembers(1);
   const totalValue = units.reduce((sum, unit) => sum + valueOf(unit), 0);
   const totalRent = units.reduce((sum, unit) => sum + unit.rent, 0);
   const distributedValue = units.reduce((sum, unit) => sum + (assignments[unit.id] ? valueOf(unit) : 0), 0);
@@ -87,39 +102,22 @@ export function calculateDivision(units: DivisionUnit[], assignments: Record<str
   const shared = units.filter((unit) => assignments[unit.id] === "shared");
   const sharedValue = shared.reduce((sum, unit) => sum + valueOf(unit), 0);
   const sharedRent = shared.reduce((sum, unit) => sum + unit.rent, 0);
-  const memberTargetValue = totalValue / divisionMembers.length;
-  const memberTargetRent = totalRent / divisionMembers.length;
-  const members = divisionMembers.map((member) => {
+  const memberTargetValue = totalValue / activeMembers.length;
+  const memberTargetRent = totalRent / activeMembers.length;
+  const membersTotals = activeMembers.map((member) => {
     const individual = units.filter((unit) => assignments[unit.id] === member.id);
-    const value = individual.reduce((sum, unit) => sum + valueOf(unit), 0) + sharedValue / divisionMembers.length;
-    const rent = individual.reduce((sum, unit) => sum + unit.rent, 0) + sharedRent / divisionMembers.length;
-    return {
-      ...member,
-      units: individual.reduce((sum, unit) => sum + unit.quantity, 0),
-      value,
-      rent,
-      share: totalValue > 0 ? (value / totalValue) * 100 : 0,
-      valueDifference: value - memberTargetValue,
-      rentDifference: rent - memberTargetRent,
-    };
+    const value = individual.reduce((sum, unit) => sum + valueOf(unit), 0) + sharedValue / activeMembers.length;
+    const rent = individual.reduce((sum, unit) => sum + unit.rent, 0) + sharedRent / activeMembers.length;
+    return { ...member, units: individual.reduce((sum, unit) => sum + unit.quantity, 0), value, rent, share: totalValue > 0 ? (value / totalValue) * 100 : 0, valueDifference: value - memberTargetValue, rentDifference: rent - memberTargetRent };
   });
-  const propertyBalance = balanceScore(members.map((member) => member.value), memberTargetValue);
-  const incomeBalance = balanceScore(members.map((member) => member.rent), memberTargetRent);
+  const propertyBalance = balanceScore(membersTotals.map((member) => member.value), memberTargetValue);
+  const incomeBalance = balanceScore(membersTotals.map((member) => member.rent), memberTargetRent);
   return {
-    totalValue,
-    distributedValue,
-    pendingValue: Math.max(totalValue - distributedValue, 0),
-    totalRent,
-    distributedRent,
-    pendingUnits: units.reduce((sum, unit) => sum + unit.quantity, 0) - distributedUnits,
-    distributedUnits,
+    totalValue, distributedValue, pendingValue: Math.max(totalValue - distributedValue, 0), totalRent, distributedRent,
+    pendingUnits: units.reduce((sum, unit) => sum + unit.quantity, 0) - distributedUnits, distributedUnits,
     sharedUnits: shared.reduce((sum, unit) => sum + unit.quantity, 0),
     unitsWithoutValue: units.filter((unit) => unit.value == null).reduce((sum, unit) => sum + unit.quantity, 0),
-    memberTargetValue,
-    memberTargetRent,
-    members,
-    propertyBalance,
-    incomeBalance,
+    memberTargetValue, memberTargetRent, members: membersTotals, propertyBalance, incomeBalance,
     consolidatedBalance: propertyBalance == null || incomeBalance == null ? null : (propertyBalance + incomeBalance) / 2,
   };
 }
@@ -128,16 +126,9 @@ function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-/** Builds the smallest readable set of payments needed to equalize property value. */
 export function calculateEqualization(metrics: DivisionMetrics): EqualizationTransfer[] {
-  const debtors = metrics.members
-    .map((member) => ({ member, amount: member.value - metrics.memberTargetValue }))
-    .filter(({ amount }) => amount > 0.01)
-    .map(({ member, amount }) => ({ member, amount }));
-  const receivers = metrics.members
-    .map((member) => ({ member, amount: metrics.memberTargetValue - member.value }))
-    .filter(({ amount }) => amount > 0.01)
-    .map(({ member, amount }) => ({ member, amount }));
+  const debtors = metrics.members.map((member) => ({ member, amount: member.value - metrics.memberTargetValue })).filter(({ amount }) => amount > 0.01);
+  const receivers = metrics.members.map((member) => ({ member, amount: metrics.memberTargetValue - member.value })).filter(({ amount }) => amount > 0.01);
   const transfers: EqualizationTransfer[] = [];
   let debtorIndex = 0;
   let receiverIndex = 0;
@@ -154,8 +145,8 @@ export function calculateEqualization(metrics: DivisionMetrics): EqualizationTra
   return transfers;
 }
 
-function projectedPenalty(units: DivisionUnit[], assignments: Record<string, DivisionAssignment>, priorities: DivisionSuggestionPriorities) {
-  const metrics = calculateDivision(units, assignments);
+function projectedPenalty(units: DivisionUnit[], assignments: Record<string, DivisionAssignment>, priorities: DivisionSuggestionPriorities, members: DivisionMember[]) {
+  const metrics = calculateDivision(units, assignments, members);
   const valuePenalty = metrics.memberTargetValue > 0 ? averageDeviation(metrics.members.map((member) => member.value), metrics.memberTargetValue) : 0;
   const rentPenalty = metrics.memberTargetRent > 0 ? averageDeviation(metrics.members.map((member) => member.rent), metrics.memberTargetRent) : 0;
   const counts = metrics.members.map((member) => member.units);
@@ -179,17 +170,18 @@ function priorityScore(unit: DivisionUnit, units: DivisionUnit[], priorities: Di
 }
 
 /** Greedy proposal that minimizes the selected normalized priority deviations. */
-export function suggestDivision(units: DivisionUnit[], current: Record<string, DivisionAssignment>, keepShared = true, priorities: DivisionSuggestionPriorities = { value: true, rent: true }) {
+export function suggestDivision(units: DivisionUnit[], current: Record<string, DivisionAssignment>, keepShared = true, priorities: DivisionSuggestionPriorities = { value: true, rent: true }, members: DivisionMember[] = divisionMembers) {
+  const activeMembers = members.length ? members : createDefaultDivisionMembers(1);
   const next: Record<string, DivisionAssignment> = {};
   const fixed = keepShared ? units.filter((unit) => current[unit.id] === "shared") : [];
   for (const unit of units) next[unit.id] = fixed.some((fixedUnit) => fixedUnit.id === unit.id) ? "shared" : null;
   const candidates = units.filter((unit) => !fixed.some((fixedUnit) => fixedUnit.id === unit.id)).sort((left, right) => priorityScore(right, units, priorities) - priorityScore(left, units, priorities));
   for (const unit of candidates) {
-    let best: DivisionMemberId = divisionMembers[0].id;
+    let best: DivisionMemberId = activeMembers[0].id;
     let bestPenalty = Number.POSITIVE_INFINITY;
-    for (const member of divisionMembers) {
+    for (const member of activeMembers) {
       next[unit.id] = member.id;
-      const penalty = projectedPenalty(units, next, priorities);
+      const penalty = projectedPenalty(units, next, priorities, activeMembers);
       if (penalty < bestPenalty) { best = member.id; bestPenalty = penalty; }
     }
     next[unit.id] = best;

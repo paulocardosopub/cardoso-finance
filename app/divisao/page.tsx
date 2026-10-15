@@ -7,10 +7,10 @@ import { usePortfolio } from "@/components/portfolio-provider";
 import IncomeDivisionPanel from "@/components/income-division-panel";
 import { brl, compactBrl } from "@/lib/format";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
-import { calculateDivision, calculateEqualization, divisionMembers, suggestDivision, type DivisionAssignment, type DivisionMemberId, type DivisionMetrics, type DivisionSuggestionPriorities, type DivisionUnit, type EqualizationTransfer } from "@/lib/division";
+import { calculateDivision, calculateEqualization, createDefaultDivisionMembers, normalizeDivisionMembers, suggestDivision, type DivisionAssignment, type DivisionMember, type DivisionMemberId, type DivisionMetrics, type DivisionSuggestionPriorities, type DivisionUnit, type EqualizationTransfer } from "@/lib/division";
 import { downloadDivisionPdf } from "@/lib/division-pdf";
 
-type Simulation = { id: string; name: string; updatedAt: string; allocationMode: "unit" | "building" };
+type Simulation = { id: string; name: string; updatedAt: string; allocationMode: "unit" | "building"; members: DivisionMember[] };
 type RawRow = Record<string, unknown>;
 type Destination = DivisionMemberId | "shared";
 type TransferContextValue = {
@@ -53,9 +53,9 @@ function valueLabel(value: number | null) {
   return value == null ? "Valor pendente" : brl(value);
 }
 
-function assignmentLabel(assignment: DivisionAssignment) {
+function assignmentLabel(assignment: DivisionAssignment, members: DivisionMember[]) {
   if (assignment === "shared") return "Compartilhado";
-  return divisionMembers.find((member) => member.id === assignment)?.name ?? "Disponível";
+  return members.find((member) => member.id === assignment)?.name ?? "Disponível";
 }
 
 function scoreLabel(value: number | null) {
@@ -161,11 +161,15 @@ function expandCalculationAssignments(units: DivisionUnit[], assignments: Record
 export default function DivisaoPage() {
   const { organizationId, role, loading } = usePortfolio();
   const authorized = canManageDivision(role);
+  const memberView = role === "viewer";
+  const canViewDivision = authorized || memberView;
   const [divisionTab, setDivisionTab] = useState<"income" | "property">("income");
   const [units, setUnits] = useState<DivisionUnit[]>([]);
   const [simulations, setSimulations] = useState<Simulation[]>([]);
   const [selectedSimulationId, setSelectedSimulationId] = useState<string | null>(null);
   const [simulationName, setSimulationName] = useState("Nova divisão");
+  const [memberConfig, setMemberConfig] = useState<DivisionMember[]>(() => createDefaultDivisionMembers(4));
+  const [publishedSharedUnitIds, setPublishedSharedUnitIds] = useState<string[]>([]);
   const [assignments, setAssignments] = useState<Record<string, DivisionAssignment>>({});
   const [selectedInventoryId, setSelectedInventoryId] = useState<string | null>(null);
   const [draggingUnitIds, setDraggingUnitIds] = useState<string[]>([]);
@@ -183,6 +187,7 @@ export default function DivisaoPage() {
   const [transferTarget, setTransferTarget] = useState<DivisionMemberId | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingShared, setSavingShared] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [staleItems, setStaleItems] = useState(0);
   const [message, setMessage] = useState("");
@@ -208,22 +213,26 @@ export default function DivisaoPage() {
         (unitsResult.data ?? []) as RawRow[],
         (leasesResult.data ?? []) as RawRow[],
       ),
+      sharedUnitIds: [] as string[],
     };
   }, [organizationId]);
 
   useEffect(() => {
-    if (!organizationId || !authorized) return;
+    if (!organizationId || !canViewDivision) return;
     let active = true;
     async function load() {
       setLoadingData(true); setError("");
       try {
         const source = await fetchSourceData();
-        const simulationsResult = await source.supabase.from("division_simulations").select("id, name, allocation_mode, updated_at").eq("organization_id", organizationId).order("updated_at", { ascending: false });
+        const sharedResult = await source.supabase.from("division_member_shared_items").select("unit_id").eq("organization_id", organizationId);
+        if (sharedResult.error) throw new Error(sharedResult.error.message.includes("division_member_shared_items") ? "A publicação do patrimônio compartilhado ainda não foi ativada no banco de dados." : sharedResult.error.message);
+        const simulationsResult = authorized ? await source.supabase.from("division_simulations").select("id, name, allocation_mode, member_config, updated_at").eq("organization_id", organizationId).order("updated_at", { ascending: false }) : { data: [], error: null };
         if (simulationsResult.error) throw new Error(simulationsResult.error.message.includes("division_simulations") ? "A estrutura de simulações ainda não foi ativada no banco de dados." : simulationsResult.error.message);
         const mappedUnits = source.units;
-        const mappedSimulations = ((simulationsResult.data ?? []) as RawRow[]).map((simulation) => ({ id: String(simulation.id), name: String(simulation.name ?? "Divisão"), updatedAt: String(simulation.updated_at ?? ""), allocationMode: simulation.allocation_mode === "building" ? "building" as const : "unit" as const }));
+        const mappedSimulations = ((simulationsResult.data ?? []) as RawRow[]).map((simulation) => ({ id: String(simulation.id), name: String(simulation.name ?? "Divisão"), updatedAt: String(simulation.updated_at ?? ""), allocationMode: simulation.allocation_mode === "building" ? "building" as const : "unit" as const, members: normalizeDivisionMembers(simulation.member_config) }));
+        const nextSharedIds = ((sharedResult.data ?? []) as RawRow[]).map((row) => String(row.unit_id)).filter(Boolean);
       if (!active) return;
-      setUnits(mappedUnits); setSimulations(mappedSimulations); setSelectedSimulationId(null); setSimulationName("Nova divisão"); setDivisionMode("unit"); setAssignments({}); setStaleItems(0); setDirty(false); setLoadingData(false);
+      setUnits(mappedUnits); setSimulations(mappedSimulations); setPublishedSharedUnitIds(nextSharedIds); setSelectedSimulationId(null); setSimulationName(memberView ? "Sugestão de divisão" : "Nova divisão"); setMemberConfig(createDefaultDivisionMembers(4)); setDivisionMode(memberView ? "building" : "unit"); setAssignments(memberView ? Object.fromEntries(nextSharedIds.map((unitId) => [unitId, "shared" as const])) : {}); setStaleItems(0); setDirty(false); setLoadingData(false);
       } catch (loadError) {
         if (!active) return;
         setLoadingData(false);
@@ -232,21 +241,31 @@ export default function DivisaoPage() {
     }
     void load();
     return () => { active = false; };
-  }, [authorized, fetchSourceData, organizationId]);
+  }, [authorized, canViewDivision, fetchSourceData, memberView, organizationId]);
 
   useEffect(() => {
-    if (!organizationId || !authorized) return;
+    if (!organizationId || !canViewDivision) return;
     let active = true;
     let lastRefresh = 0;
     const refreshSources = () => {
       const now = Date.now();
       if (now - lastRefresh < 1000) return;
       lastRefresh = now;
-      void fetchSourceData().then(({ units: nextUnits }) => {
+      void fetchSourceData().then(async ({ units: nextUnits, supabase }) => {
         if (!active) return;
+        const sharedResult = await supabase.from("division_member_shared_items").select("unit_id").eq("organization_id", organizationId);
+        const nextSharedIds = sharedResult.error ? publishedSharedUnitIds : ((sharedResult.data ?? []) as RawRow[]).map((row) => String(row.unit_id)).filter(Boolean);
         const validUnitIds = new Set(nextUnits.map((unit) => unit.id));
         setUnits(nextUnits);
-        setAssignments((current) => Object.fromEntries(Object.entries(current).filter(([unitId]) => validUnitIds.has(unitId))));
+        setPublishedSharedUnitIds(nextSharedIds);
+        setAssignments((current) => {
+          const next = Object.fromEntries(Object.entries(current).filter(([unitId]) => validUnitIds.has(unitId))) as Record<string, DivisionAssignment>;
+          if (memberView) {
+            for (const unitId of nextSharedIds) if (validUnitIds.has(unitId)) next[unitId] = "shared";
+            for (const unitId of validUnitIds) if (next[unitId] === "shared" && !nextSharedIds.includes(unitId)) delete next[unitId];
+          }
+          return next;
+        });
       }).catch((refreshError) => {
         if (active) setError(refreshError instanceof Error ? refreshError.message : "Não foi possível atualizar os dados da divisão.");
       });
@@ -258,7 +277,7 @@ export default function DivisaoPage() {
     const supabase = createSupabaseBrowserClient();
     const channel = supabase?.channel(`division-source-${organizationId}`);
     if (channel) {
-      for (const table of ["assets", "buildings", "property_units", "leases"]) {
+      for (const table of ["assets", "buildings", "property_units", "leases", "division_member_shared_items"]) {
         channel.on("postgres_changes", { event: "*", schema: "public", table, filter: `organization_id=eq.${organizationId}` }, refreshSources);
       }
       channel.subscribe();
@@ -269,10 +288,10 @@ export default function DivisaoPage() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (channel) void supabase?.removeChannel(channel);
     };
-  }, [authorized, fetchSourceData, organizationId]);
+  }, [canViewDivision, fetchSourceData, memberView, organizationId, publishedSharedUnitIds]);
 
   const currentCalculation = useMemo(() => calculationModel(units, assignments, divisionMode), [assignments, divisionMode, units]);
-  const metrics = useMemo(() => calculateDivision(currentCalculation.units, currentCalculation.assignments), [currentCalculation]);
+  const metrics = useMemo(() => calculateDivision(currentCalculation.units, currentCalculation.assignments, memberConfig), [currentCalculation, memberConfig]);
   const equalizationTransfers = useMemo(() => calculateEqualization(metrics), [metrics]);
   const buildingOptions = useMemo(() => [...new Map(units.map((unit) => [unit.buildingId, unit.buildingName])).entries()], [units]);
   const typeOptions = useMemo(() => [...new Set(units.map((unit) => unit.type))].sort((left, right) => left.localeCompare(right)), [units]);
@@ -309,19 +328,23 @@ export default function DivisaoPage() {
     return divisionMode === "building" ? units.filter((unit) => unit.buildingId === selectedInventoryId).map((unit) => unit.id) : [selectedInventoryId];
   }, [divisionMode, selectedInventoryId, units]);
   const assignedByDestination = useMemo(() => {
-    const result: Record<Destination, DivisionUnit[]> = { paulo: [], pedro: [], aurora: [], carlos: [], shared: [] };
-    for (const unit of units) { const assignment = assignments[unit.id]; if (assignment) result[assignment].push(unit); }
+    const result = Object.fromEntries([...memberConfig.map((member) => [member.id, [] as DivisionUnit[]]), ["shared", [] as DivisionUnit[]]]) as Record<Destination, DivisionUnit[]>;
+    for (const unit of units) { const assignment = assignments[unit.id]; if (assignment && result[assignment]) result[assignment].push(unit); }
     return result;
-  }, [assignments, units]);
+  }, [assignments, memberConfig, units]);
   const propertyChart = metrics.members.map((member) => ({ name: member.name, share: member.share, amount: member.value, color: member.color }));
   const incomeChart = metrics.members.map((member) => ({ name: member.name, share: metrics.totalRent > 0 ? (member.rent / metrics.totalRent) * 100 : 0, rent: member.rent, color: member.color }));
 
   function updateAssignments(unitIds: string[], assignment: DivisionAssignment) {
     if (!unitIds.length) return;
+    if (memberView && (assignment === "shared" || unitIds.some((unitId) => publishedSharedUnitIds.includes(unitId)))) {
+      setMessage("O patrimônio compartilhado é definido pelo gestor e não pode ser alterado nesta sugestão.");
+      return;
+    }
     setAssignments((current) => Object.fromEntries(Object.entries({ ...current, ...Object.fromEntries(unitIds.map((unitId) => [unitId, assignment])) })));
     setDirty(true); setSelectedInventoryId(null); setDraggingUnitIds([]);
     const firstUnit = units.find((unit) => unit.id === unitIds[0]);
-    setMessage(assignment ? `${firstUnit?.buildingName ?? firstUnit?.code ?? "Unidade"}${unitIds.length > 1 ? ` · ${unitIds.length} unidades` : ""} atribuído a ${assignmentLabel(assignment)}.` : "Unidade removida da distribuição.");
+    setMessage(assignment ? `${firstUnit?.buildingName ?? firstUnit?.code ?? "Unidade"}${unitIds.length > 1 ? ` · ${unitIds.length} unidades` : ""} atribuído a ${assignmentLabel(assignment, memberConfig)}.` : "Unidade removida da distribuição.");
   }
 
   function dropOn(destination: Destination, event?: React.DragEvent) {
@@ -338,16 +361,25 @@ export default function DivisaoPage() {
     if (!supabase) return;
     const result = await supabase.from("division_simulation_items").select("unit_id, assignment").eq("simulation_id", id);
     if (result.error) { setError(result.error.message); return; }
+    const simulation = simulations.find((item) => item.id === id);
+    const nextMembers = simulation?.members ?? createDefaultDivisionMembers(4);
     const available = new Set(units.map((unit) => unit.id));
     const next: Record<string, DivisionAssignment> = {}; let stale = 0;
-    for (const item of (result.data ?? []) as RawRow[]) { const unitId = item.unit_id ? String(item.unit_id) : ""; if (!unitId || !available.has(unitId)) stale += 1; else next[unitId] = String(item.assignment) as DivisionAssignment; }
-    const simulation = simulations.find((item) => item.id === id);
-    setSelectedSimulationId(id); setSimulationName(simulation?.name ?? "Divisão"); setDivisionMode(simulation?.allocationMode ?? "unit"); setAssignments(next); setStaleItems(stale); setDirty(false); setMessage("Simulação carregada."); setError("");
+    const legacyIds = ["paulo", "pedro", "aurora", "carlos"];
+    for (const item of (result.data ?? []) as RawRow[]) {
+      const unitId = item.unit_id ? String(item.unit_id) : "";
+      if (!unitId || !available.has(unitId)) { stale += 1; continue; }
+      const rawAssignment = String(item.assignment ?? "");
+      const legacyIndex = legacyIds.indexOf(rawAssignment);
+      const mappedAssignment = legacyIndex >= 0 ? nextMembers[legacyIndex]?.id : rawAssignment === "shared" ? "shared" : nextMembers.some((member) => member.id === rawAssignment) ? rawAssignment : null;
+      if (mappedAssignment) next[unitId] = mappedAssignment;
+    }
+    setSelectedSimulationId(id); setSimulationName(simulation?.name ?? "Divisão"); setMemberConfig(nextMembers); setDivisionMode(simulation?.allocationMode ?? "unit"); setAssignments(next); setStaleItems(stale); setDirty(false); setMessage("Simulação carregada."); setError("");
   }
 
   function startNewSimulation() {
     if (dirty && !window.confirm("Há alterações não salvas. Criar uma nova simulação?")) return;
-    setSelectedSimulationId(null); setSimulationName("Nova divisão"); setDivisionMode("unit"); setAssignments({}); setStaleItems(0); setDirty(false); setMessage("Nova simulação pronta para planejamento.");
+    setSelectedSimulationId(null); setSimulationName("Nova divisão"); setMemberConfig(createDefaultDivisionMembers(4)); setDivisionMode("unit"); setAssignments({}); setStaleItems(0); setDirty(false); setMessage("Nova simulação pronta para planejamento.");
   }
 
   async function persistScenario(id: string | null, name: string) {
@@ -356,11 +388,11 @@ export default function DivisaoPage() {
     const cleanName = name.trim() || "Divisão sem nome";
     let scenarioId = id;
     if (scenarioId) {
-      const update = await supabase.from("division_simulations").update({ name: cleanName, allocation_mode: divisionMode }).eq("id", scenarioId).eq("organization_id", organizationId);
+      const update = await supabase.from("division_simulations").update({ name: cleanName, allocation_mode: divisionMode, member_config: memberConfig }).eq("id", scenarioId).eq("organization_id", organizationId);
       if (update.error) throw update.error;
     } else {
       const user = (await supabase.auth.getUser()).data.user;
-      const insert = await supabase.from("division_simulations").insert({ organization_id: organizationId, name: cleanName, allocation_mode: divisionMode, created_by: user?.id }).select("id").single();
+      const insert = await supabase.from("division_simulations").insert({ organization_id: organizationId, name: cleanName, allocation_mode: divisionMode, member_config: memberConfig, created_by: user?.id }).select("id").single();
       if (insert.error || !insert.data) throw insert.error ?? new Error("Não foi possível criar a simulação.");
       scenarioId = String(insert.data.id);
     }
@@ -376,7 +408,7 @@ export default function DivisaoPage() {
     setSaving(true); setError("");
     try {
       const result = await persistScenario(selectedSimulationId, simulationName);
-      const next = { id: String(result.id), name: result.name, updatedAt: new Date().toISOString(), allocationMode: divisionMode };
+      const next = { id: String(result.id), name: result.name, updatedAt: new Date().toISOString(), allocationMode: divisionMode, members: memberConfig };
       setSelectedSimulationId(next.id); setSimulationName(next.name); setSimulations((current) => [next, ...current.filter((item) => item.id !== next.id)]); setDirty(false); setMessage("Simulação salva com sucesso.");
     } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar a simulação."); }
     setSaving(false);
@@ -387,7 +419,7 @@ export default function DivisaoPage() {
     setSaving(true); setError("");
     try {
       const result = await persistScenario(null, `${simulationName.trim() || "Divisão"} · cópia`);
-      const next = { id: String(result.id), name: result.name, updatedAt: new Date().toISOString(), allocationMode: divisionMode };
+      const next = { id: String(result.id), name: result.name, updatedAt: new Date().toISOString(), allocationMode: divisionMode, members: memberConfig };
       setSelectedSimulationId(next.id); setSimulationName(next.name); setSimulations((current) => [next, ...current]); setDirty(false); setMessage("Simulação duplicada.");
     } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "Não foi possível duplicar a simulação."); }
     setSaving(false);
@@ -399,7 +431,7 @@ export default function DivisaoPage() {
     const result = await supabase.from("division_simulations").delete().eq("id", selectedSimulationId).eq("organization_id", organizationId);
     if (result.error) { setError(result.error.message); return; }
     const nextList = simulations.filter((item) => item.id !== selectedSimulationId);
-    setSimulations(nextList); setSelectedSimulationId(null); setSimulationName("Nova divisão"); setDivisionMode("unit"); setAssignments({}); setDirty(false); setMessage("Simulação excluída. Uma nova simulação está pronta.");
+    setSimulations(nextList); setSelectedSimulationId(null); setSimulationName("Nova divisão"); setMemberConfig(createDefaultDivisionMembers(4)); setDivisionMode("unit"); setAssignments({}); setDirty(false); setMessage("Simulação excluída. Uma nova simulação está pronta.");
   }
 
   async function restoreCurrent() {
@@ -411,9 +443,48 @@ export default function DivisaoPage() {
     setAssignments({}); setDirty(true); setSelectedInventoryId(null); setMessage("Distribuição limpa. Salve para registrar este estado.");
   }
 
+  function changeMemberCount(value: string) {
+    const count = Math.max(1, Math.min(10, Number(value) || 1));
+    setMemberConfig((current) => {
+      const defaults = createDefaultDivisionMembers(count);
+      return defaults.map((member, index) => ({ ...member, name: current[index]?.name ?? member.name, color: current[index]?.color ?? member.color }));
+    });
+    setAssignments((current) => Object.fromEntries(Object.entries(current).filter(([, assignment]) => assignment === "shared" || typeof assignment === "string" && assignment.startsWith("member-") && Number(assignment.slice(7)) <= count)));
+    setDirty(true);
+    setMessage(`${count} membros participarão desta divisão. Você pode editar os nomes abaixo.`);
+  }
+
+  function renameMember(id: DivisionMemberId, name: string) {
+    setMemberConfig((current) => current.map((member) => member.id === id ? { ...member, name: name || `Membro ${current.findIndex((item) => item.id === id) + 1}` } : member));
+    setDirty(true);
+  }
+
+  async function saveSharedForMembers() {
+    if (!authorized || savingShared || !organizationId) return;
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    setSavingShared(true); setError("");
+    try {
+      const sharedBuildingIds = new Set(units.filter((unit) => assignments[unit.id] === "shared").map((unit) => unit.buildingId));
+      const sharedIds = units.filter((unit) => sharedBuildingIds.has(unit.buildingId)).map((unit) => unit.id);
+      const remove = await supabase.from("division_member_shared_items").delete().eq("organization_id", organizationId);
+      if (remove.error) throw remove.error;
+      if (sharedIds.length) {
+        const insert = await supabase.from("division_member_shared_items").insert(sharedIds.map((unitId) => ({ organization_id: organizationId, unit_id: unitId })));
+        if (insert.error) throw insert.error;
+      }
+      setPublishedSharedUnitIds(sharedIds);
+      setMessage(sharedIds.length ? "Patrimônio compartilhado salvo para os membros. Os imóveis foram fixados por prédio inteiro." : "Patrimônio compartilhado limpo para os membros.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar o patrimônio compartilhado.");
+    } finally {
+      setSavingShared(false);
+    }
+  }
+
   function buildSuggestion(mode: "unit" | "building", keepSharedValue = keepShared, priorities = suggestionPriorities) {
     const model = calculationModel(units, assignments, mode);
-    const suggested = suggestDivision(model.units, model.assignments, keepSharedValue, priorities);
+    const suggested = suggestDivision(model.units, model.assignments, keepSharedValue, priorities, memberConfig);
     return expandCalculationAssignments(units, suggested, mode);
   }
 
@@ -424,11 +495,11 @@ export default function DivisaoPage() {
 
   function metricsForAssignments(nextAssignments: Record<string, DivisionAssignment>, mode = divisionMode) {
     const model = calculationModel(units, nextAssignments, mode);
-    return calculateDivision(model.units, model.assignments);
+    return calculateDivision(model.units, model.assignments, memberConfig);
   }
 
   function openTransfer(source: DivisionMemberId) {
-    const target = divisionMembers.find((member) => member.id !== source)?.id ?? null;
+    const target = memberConfig.find((member) => member.id !== source)?.id ?? null;
     setTransferSource(source); setTransferTarget(target);
   }
 
@@ -443,8 +514,8 @@ export default function DivisaoPage() {
       return next;
     });
     setDirty(true); setSelectedInventoryId(null); setDraggingUnitIds([]);
-    const sourceName = divisionMembers.find((member) => member.id === transferSource)?.name ?? "Membro";
-    const targetName = divisionMembers.find((member) => member.id === transferTarget)?.name ?? "Membro";
+    const sourceName = memberConfig.find((member) => member.id === transferSource)?.name ?? "Membro";
+    const targetName = memberConfig.find((member) => member.id === transferTarget)?.name ?? "Membro";
     setMessage(`Troca concluída: ${sourceName} recebeu as atribuições de ${targetName} e vice-versa.`);
     setTransferSource(null); setTransferTarget(null);
   }
@@ -460,71 +531,78 @@ export default function DivisaoPage() {
     targetUnitCount: transferTarget ? assignedByDestination[transferTarget].reduce((sum, unit) => sum + unit.quantity, 0) : 0,
   };
 
-  if (loading || (loadingData && divisionTab === "property")) return <div className="content"><div className="empty-state"><Scale size={28} /><p>Carregando a central de divisão...</p></div></div>;
-  if (!authorized) return <div className="content"><div className="access-gate-card panel division-access-card"><LockKeyhole size={27} /><h2>Acesso restrito</h2><p>A Divisão Patrimonial está disponível apenas para gestores e administradores da holding.</p></div></div>;
-  if (error && !units.length && divisionTab === "property") return <div className="content"><div className="empty-state"><AlertTriangle size={28} /><h3>Não foi possível abrir a Divisão</h3><p>{error}</p></div></div>;
+  const activeTab = memberView ? "property" : divisionTab;
+  const selectedUnitId = selectedInventoryId;
+  if (loading || (loadingData && activeTab === "property")) return <div className="content"><div className="empty-state"><Scale size={28} /><p>Carregando a central de divisão...</p></div></div>;
+  if (!canViewDivision) return <div className="content"><div className="access-gate-card panel division-access-card"><LockKeyhole size={27} /><h2>Acesso restrito</h2><p>A Divisão Patrimonial está disponível apenas para membros da holding.</p></div></div>;
+  if (error && !units.length && activeTab === "property") return <div className="content"><div className="empty-state"><AlertTriangle size={28} /><h3>Não foi possível abrir a Divisão</h3><p>{error}</p></div></div>;
 
   return <TransferContext.Provider value={transferContext}><div className="content division-page">
-    <div className="division-tabs panel" role="tablist" aria-label="Tipo de divisão"><button className={divisionTab === "income" ? "division-tab active" : "division-tab"} onClick={() => setDivisionTab("income")} role="tab" aria-selected={divisionTab === "income"}><CircleDollarSign size={15} /><span><strong>Divisão de rendimentos</strong><small>Meta mensal e relatórios</small></span></button><button className={divisionTab === "property" ? "division-tab active" : "division-tab"} onClick={() => setDivisionTab("property")} role="tab" aria-selected={divisionTab === "property"}><Scale size={15} /><span><strong>Divisão de imóveis</strong><small>Unidades e prédios inteiros</small></span></button></div>
-    {divisionTab === "income" ? <IncomeDivisionPanel /> : <>
-    <div className="page-heading division-heading"><div><div className="eyebrow"><Scale size={13} /> Planejamento patrimonial</div><h1>Divisão de imóveis</h1><p className="subtitle">Distribua unidades em cenários de planejamento sem alterar a titularidade real dos imóveis.</p></div><div className="page-heading-actions"><button className="button button-ghost" onClick={suggest} disabled={!units.length}><BarChart3 size={14} /> Sugerir divisão equilibrada</button><button className="button button-primary" onClick={() => void saveCurrent()} disabled={saving}>{saving ? "Salvando…" : <><Save size={14} /> Salvar simulação</>}</button></div></div>
-    <div className="division-toolbar panel"><div className="division-scenario-select"><label htmlFor="division-scenario">Simulação ativa</label><select id="division-scenario" value={selectedSimulationId ?? "new"} onChange={(event) => event.target.value === "new" ? startNewSimulation() : void loadSimulation(event.target.value)}><option value="new">Nova simulação</option>{simulations.map((simulation) => <option value={simulation.id} key={simulation.id}>{simulation.name}</option>)}</select></div><label className="division-name-field"><span>Nome do cenário</span><input value={simulationName} onChange={(event) => { setSimulationName(event.target.value); setDirty(true); }} placeholder="Ex.: Divisão 01 — Equilíbrio patrimonial" /></label><div className="division-toolbar-actions"><button className="icon-btn" onClick={() => void duplicateCurrent()} title="Duplicar simulação" aria-label="Duplicar simulação"><Copy size={15} /></button><button className="icon-btn" onClick={() => void restoreCurrent()} disabled={!selectedSimulationId} title="Restaurar última versão salva" aria-label="Restaurar última versão salva"><RotateCcw size={15} /></button><button className="icon-btn" onClick={clearCurrent} title="Limpar distribuição" aria-label="Limpar distribuição"><Trash2 size={15} /></button>{selectedSimulationId && <button className="icon-btn danger-icon" onClick={() => void deleteCurrent()} title="Excluir simulação" aria-label="Excluir simulação"><X size={16} /></button>}</div></div>
+    {!memberView && <div className="division-tabs panel" role="tablist" aria-label="Tipo de divisão"><button className={divisionTab === "income" ? "division-tab active" : "division-tab"} onClick={() => setDivisionTab("income")} role="tab" aria-selected={divisionTab === "income"}><CircleDollarSign size={15} /><span><strong>Divisão de rendimentos</strong><small>Meta mensal e relatórios</small></span></button><button className={divisionTab === "property" ? "division-tab active" : "division-tab"} onClick={() => setDivisionTab("property")} role="tab" aria-selected={divisionTab === "property"}><Scale size={15} /><span><strong>Divisão de imóveis</strong><small>Unidades e prédios inteiros</small></span></button></div>}
+    {activeTab === "income" ? <IncomeDivisionPanel /> : <>
+    <div className="page-heading division-heading"><div><div className="eyebrow"><Scale size={13} /> {memberView ? "Sugestão patrimonial" : "Planejamento patrimonial"}</div><h1>Divisão de imóveis</h1><p className="subtitle">{memberView ? "Monte uma sugestão de divisão para os imóveis disponíveis. O patrimônio compartilhado definido pelo gestor permanece fixo." : "Distribua imóveis em cenários de planejamento sem alterar a titularidade real dos imóveis."}</p></div><div className="page-heading-actions"><button className="button button-ghost" onClick={suggest} disabled={!units.length}><BarChart3 size={14} /> Sugerir divisão equilibrada</button>{authorized && <button className="button button-primary" onClick={() => void saveCurrent()} disabled={saving}>{saving ? "Salvando…" : <><Save size={14} /> Salvar simulação</>}</button>}</div></div>
+    {authorized && <div className="division-toolbar panel"><div className="division-scenario-select"><label htmlFor="division-scenario">Simulação ativa</label><select id="division-scenario" value={selectedSimulationId ?? "new"} onChange={(event) => event.target.value === "new" ? startNewSimulation() : void loadSimulation(event.target.value)}><option value="new">Nova simulação</option>{simulations.map((simulation) => <option value={simulation.id} key={simulation.id}>{simulation.name}</option>)}</select></div><label className="division-name-field"><span>Nome do cenário</span><input value={simulationName} onChange={(event) => { setSimulationName(event.target.value); setDirty(true); }} placeholder="Ex.: Divisão 01 — Equilíbrio patrimonial" /></label><div className="division-toolbar-actions"><button className="icon-btn" onClick={() => void duplicateCurrent()} title="Duplicar simulação" aria-label="Duplicar simulação"><Copy size={15} /></button><button className="icon-btn" onClick={() => void restoreCurrent()} disabled={!selectedSimulationId} title="Restaurar última versão salva" aria-label="Restaurar última versão salva"><RotateCcw size={15} /></button><button className="icon-btn" onClick={clearCurrent} title="Limpar distribuição" aria-label="Limpar distribuição"><Trash2 size={15} /></button>{selectedSimulationId && <button className="icon-btn danger-icon" onClick={() => void deleteCurrent()} title="Excluir simulação" aria-label="Excluir simulação"><X size={16} /></button>}</div></div>}
+    <DivisionMemberConfiguration members={memberConfig} onCountChange={changeMemberCount} onRename={renameMember} readOnly={false} />
     {error && <div className="division-alert error"><AlertTriangle size={14} /> {error}</div>}{message && <div className="division-alert"><Check size={14} /> {message}</div>}{staleItems > 0 && <div className="division-alert warning"><AlertTriangle size={14} /> {staleItems} unidade(s) salvas nesta simulação não estão mais no cadastro atual. Elas foram mantidas apenas como histórico e não entram nos cálculos.</div>}
     <div className="metrics division-metrics"><DivisionMetric title="Patrimônio total da holding" value={compactBrl(metrics.totalValue)} foot={`${units.length} unidades · ${metrics.unitsWithoutValue} sem avaliação`} icon={<Layers3 size={15} />} /><DivisionMetric title="Patrimônio distribuído" value={compactBrl(metrics.distributedValue)} foot={`${metrics.distributedUnits} unidades atribuídas`} icon={<Check size={15} />} /><DivisionMetric title="Patrimônio pendente" value={compactBrl(metrics.pendingValue)} foot={`${metrics.pendingUnits} unidades aguardando`} icon={<AlertTriangle size={15} />} /><DivisionMetric title="Renda mensal prevista" value={brl(metrics.totalRent)} foot="Valor cadastrado, inclusive desocupados" icon={<BarChart3 size={15} />} /><DivisionMetric title="Meta patrimonial por membro" value={compactBrl(metrics.memberTargetValue)} foot="25% do patrimônio conhecido" icon={<Scale size={15} />} /><DivisionMetric title="Meta de renda por membro" value={brl(metrics.memberTargetRent)} foot="25% da renda mensal prevista" icon={<UsersRound size={15} />} /></div>
-    <div className="division-workspace"><section className="panel division-inventory"><div className="panel-heading"><div><h2>{divisionMode === "building" ? "Imóveis disponíveis" : "Unidades disponíveis"}</h2><p>{divisionMode === "building" ? "Selecione ou arraste prédios inteiros para um destino." : "Selecione por clique ou arraste para um destino."}</p></div><span className="division-counter">{divisionMode === "building" ? `${visibleBuildings.length} de ${buildingOptions.length} imóveis` : `${visibleUnits.length} de ${units.length} unidades`}</span></div><div className="division-mode-control"><label className="division-mode-checkbox"><input type="checkbox" checked={divisionMode === "building"} onChange={(event) => { setDivisionMode(event.target.checked ? "building" : "unit"); setSelectedInventoryId(null); }} /><span><strong>Considerar imóveis/prédios inteiros</strong><small>{divisionMode === "building" ? "Atribuir um imóvel leva todas as suas unidades juntas e usa o valor atualizado do prédio." : "Atribuir unidade por unidade e usar o valor individual cadastrado."}</small></span></label></div><div className="division-filters"><label className="division-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar imóvel ou unidade" /></label><select value={buildingFilter} onChange={(event) => setBuildingFilter(event.target.value)} aria-label="Filtrar prédio"><option value="all">Todos os prédios</option>{buildingOptions.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="Filtrar tipo"><option value="all">Todos os tipos</option>{typeOptions.map((type) => <option value={type} key={type}>{type}</option>)}</select><select value={occupancyFilter} onChange={(event) => setOccupancyFilter(event.target.value)} aria-label="Filtrar situação"><option value="all">Todas as situações</option><option value="occupied">Alugados</option><option value="vacant">Desocupados</option></select><select value={divisionFilter} onChange={(event) => setDivisionFilter(event.target.value)} aria-label="Filtrar status da divisão"><option value="all">Todos os status</option><option value="available">Disponíveis</option><option value="distributed">Distribuídos</option><option value="shared">Compartilhados</option></select></div><div className="division-inventory-list">{divisionMode === "building" ? (visibleBuildings.length ? visibleBuildings.map((building) => <InventoryBuildingCard key={building.buildingId} name={building.name} units={building.units} assignments={assignments} selected={selectedInventoryId === building.buildingId} onSelect={() => setSelectedInventoryId((current) => current === building.buildingId ? null : building.buildingId)} onDragStart={(event) => { const ids = building.units.map((unit) => unit.id); setDraggingUnitIds(ids); event.dataTransfer.setData("application/x-division-units", JSON.stringify(ids)); event.dataTransfer.setData("text/plain", JSON.stringify(ids)); }} />) : <div className="division-empty"><Search size={21} /><p>Nenhum imóvel corresponde aos filtros atuais.</p></div>) : (visibleUnits.length ? visibleUnits.map((unit) => <InventoryCard key={unit.id} unit={unit} assignment={assignments[unit.id] ?? null} selected={selectedInventoryId === unit.id} onSelect={() => setSelectedInventoryId((current) => current === unit.id ? null : unit.id)} onDragStart={(event) => { setDraggingUnitIds([unit.id]); event.dataTransfer.setData("application/x-division-units", JSON.stringify([unit.id])); event.dataTransfer.setData("text/plain", unit.id); }} />) : <div className="division-empty"><Search size={21} /><p>Nenhuma unidade corresponde aos filtros atuais.</p></div>)}</div>{selectedInventoryId && <div className="division-selection-bar"><span><Check size={14} /> {divisionMode === "building" ? "Imóvel selecionado" : "Unidade selecionada"}: <strong>{divisionMode === "building" ? units.find((unit) => unit.buildingId === selectedInventoryId)?.buildingName : units.find((unit) => unit.id === selectedInventoryId)?.code}</strong></span><button className="icon-btn" onClick={() => setSelectedInventoryId(null)} aria-label="Cancelar seleção"><X size={15} /></button></div>}</section><section className="division-board"><div className="division-board-heading"><div><h2>Destinos da divisão</h2><p>{selectedInventoryId ? "Escolha uma caixa para atribuir a seleção." : "Arraste unidades ou imóveis entre as caixas para reorganizar o cenário."}</p></div><span className="division-board-legend"><span className="legend-dot" /> Atualização instantânea</span></div><div className="division-destinations">{divisionMembers.map((member) => <DestinationCard key={member.id} destination={member.id} units={assignedByDestination[member.id]} metrics={metrics} divisionMode={divisionMode} selectedUnitId={selectedInventoryId} onDrop={dropOn} onSelectDestination={() => updateAssignments(selectedUnitIds, member.id)} onDragStart={(event, unitId) => { setDraggingUnitIds([unitId]); event.dataTransfer.setData("application/x-division-units", JSON.stringify([unitId])); event.dataTransfer.setData("text/plain", unitId); }} onRemove={(unitId) => updateAssignments([unitId], null)} />)}<DestinationCard destination="shared" units={assignedByDestination.shared} metrics={metrics} divisionMode={divisionMode} selectedUnitId={selectedInventoryId} onDrop={dropOn} onSelectDestination={() => updateAssignments(selectedUnitIds, "shared")} onDragStart={(event, unitId) => { setDraggingUnitIds([unitId]); event.dataTransfer.setData("application/x-division-units", JSON.stringify([unitId])); event.dataTransfer.setData("text/plain", unitId); }} onRemove={(unitId) => updateAssignments([unitId], null)} /></div></section></div>
+    <div className="division-workspace"><section className="panel division-inventory"><div className="panel-heading"><div><h2>{divisionMode === "building" ? "Imóveis disponíveis" : "Unidades disponíveis"}</h2><p>{divisionMode === "building" ? "Selecione ou arraste prédios inteiros para um destino." : "Selecione por clique ou arraste para um destino."}</p></div><span className="division-counter">{divisionMode === "building" ? `${visibleBuildings.length} de ${buildingOptions.length} imóveis` : `${visibleUnits.length} de ${units.length} unidades`}</span></div><div className="division-mode-control"><label className="division-mode-checkbox"><input type="checkbox" checked={divisionMode === "building"} disabled={memberView} onChange={(event) => { if (!authorized) return; setDivisionMode(event.target.checked ? "building" : "unit"); setSelectedInventoryId(null); }} /><span><strong>Considerar imóveis/prédios inteiros</strong><small>{memberView ? "Fixado para membros: as sugestões usam prédios inteiros." : divisionMode === "building" ? "Atribuir um imóvel leva todas as suas unidades juntas e usa o valor atualizado do prédio." : "Atribuir unidade por unidade e usar o valor individual cadastrado."}</small></span></label></div><div className="division-filters"><label className="division-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar imóvel ou unidade" /></label><select value={buildingFilter} onChange={(event) => setBuildingFilter(event.target.value)} aria-label="Filtrar prédio"><option value="all">Todos os prédios</option>{buildingOptions.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="Filtrar tipo"><option value="all">Todos os tipos</option>{typeOptions.map((type) => <option value={type} key={type}>{type}</option>)}</select><select value={occupancyFilter} onChange={(event) => setOccupancyFilter(event.target.value)} aria-label="Filtrar situação"><option value="all">Todas as situações</option><option value="occupied">Alugados</option><option value="vacant">Desocupados</option></select><select value={divisionFilter} onChange={(event) => setDivisionFilter(event.target.value)} aria-label="Filtrar status da divisão"><option value="all">Todos os status</option><option value="available">Disponíveis</option><option value="distributed">Distribuídos</option><option value="shared">Compartilhados</option></select></div><div className="division-inventory-list">{divisionMode === "building" ? (visibleBuildings.length ? visibleBuildings.map((building) => <InventoryBuildingCard key={building.buildingId} name={building.name} units={building.units} assignments={assignments} selected={selectedInventoryId === building.buildingId} locked={memberView && building.units.some((unit) => publishedSharedUnitIds.includes(unit.id))} onSelect={() => setSelectedInventoryId((current) => current === building.buildingId ? null : building.buildingId)} onDragStart={(event) => { const ids = building.units.map((unit) => unit.id); setDraggingUnitIds(ids); event.dataTransfer.setData("application/x-division-units", JSON.stringify(ids)); event.dataTransfer.setData("text/plain", JSON.stringify(ids)); }} />) : <div className="division-empty"><Search size={21} /><p>Nenhum imóvel corresponde aos filtros atuais.</p></div>) : (visibleUnits.length ? visibleUnits.map((unit) => <InventoryCard key={unit.id} unit={unit} assignment={assignments[unit.id] ?? null} selected={selectedInventoryId === unit.id} locked={memberView && publishedSharedUnitIds.includes(unit.id)} onSelect={() => setSelectedInventoryId((current) => current === unit.id ? null : unit.id)} onDragStart={(event) => { setDraggingUnitIds([unit.id]); event.dataTransfer.setData("application/x-division-units", JSON.stringify([unit.id])); event.dataTransfer.setData("text/plain", unit.id); }} />) : <div className="division-empty"><Search size={21} /><p>Nenhuma unidade corresponde aos filtros atuais.</p></div>)}</div>{selectedInventoryId && <div className="division-selection-bar"><span><Check size={14} /> {divisionMode === "building" ? "Imóvel selecionado" : "Unidade selecionada"}: <strong>{divisionMode === "building" ? units.find((unit) => unit.buildingId === selectedInventoryId)?.buildingName : units.find((unit) => unit.id === selectedInventoryId)?.code}</strong></span><button className="icon-btn" onClick={() => setSelectedInventoryId(null)} aria-label="Cancelar seleção"><X size={15} /></button></div>}</section><section className="division-board"><div className="division-board-heading"><div><h2>Destinos da divisão</h2><p>{selectedUnitId ? "Escolha uma caixa para atribuir a seleção." : "Arraste unidades ou imóveis entre as caixas para reorganizar o cenário."}</p></div><span className="division-board-legend"><span className="legend-dot" /> {memberView ? "Sugestão local" : "Atualização instantânea"}</span></div><div className="division-destinations">{memberConfig.map((member) => <DestinationCard key={member.id} destination={member.id} members={memberConfig} units={assignedByDestination[member.id]} metrics={metrics} divisionMode={divisionMode} selectedUnitId={selectedInventoryId} locked={false} onDrop={dropOn} onSelectDestination={() => updateAssignments(selectedUnitIds, member.id)} onDragStart={(event, unitId) => { setDraggingUnitIds([unitId]); event.dataTransfer.setData("application/x-division-units", JSON.stringify([unitId])); event.dataTransfer.setData("text/plain", unitId); }} onRemove={(unitId) => updateAssignments([unitId], null)} />)}<DestinationCard destination="shared" members={memberConfig} units={assignedByDestination.shared} metrics={metrics} divisionMode={divisionMode} selectedUnitId={selectedInventoryId} locked={memberView} canPublishShared={authorized} sharedSaved={publishedSharedUnitIds.length > 0 && publishedSharedUnitIds.every((unitId) => assignments[unitId] === "shared")} savingShared={savingShared} onSaveShared={() => void saveSharedForMembers()} onDrop={dropOn} onSelectDestination={() => updateAssignments(selectedUnitIds, "shared")} onDragStart={(event, unitId) => { setDraggingUnitIds([unitId]); event.dataTransfer.setData("application/x-division-units", JSON.stringify([unitId])); event.dataTransfer.setData("text/plain", unitId); }} onRemove={(unitId) => updateAssignments([unitId], null)} /></div></section></div>
     <section className="panel division-balance-panel"><div className="panel-heading"><div><h2>Equilíbrio da divisão</h2><p>Desvio médio absoluto de cada membro em relação à meta de 25%. Quanto maior, mais próximo do equilíbrio.</p></div><div className={`division-score ${scoreTone(metrics.consolidatedBalance)}`}><small>Consolidado · 50% patrimônio + 50% renda</small><strong>{scoreLabel(metrics.consolidatedBalance)}</strong></div></div><div className="division-balance-grid"><BalanceScore label="Equilíbrio patrimonial" score={metrics.propertyBalance} target={metrics.memberTargetValue} value={brl(metrics.memberTargetValue)} /><BalanceScore label="Equilíbrio de renda" score={metrics.incomeBalance} target={metrics.memberTargetRent} value={brl(metrics.memberTargetRent)} /></div><details className="division-methodology"><summary><CircleHelp size={14} /> Como o indicador é calculado</summary><p>Para cada dimensão, calculamos o desvio percentual absoluto de cada membro em relação à meta de 25%, fazemos a média e aplicamos <strong>100 − desvio médio</strong>, limitado entre 0% e 100%. O consolidado usa pesos iguais entre patrimônio e renda. Imóveis compartilhados entram com 25% em cada membro.</p></details></section>
     <section className="division-comparison-grid"><ChartPanel title="Patrimônio por membro" subtitle="Participação no patrimônio distribuído e compartilhado." data={propertyChart} dataKey="share" valueKey="amount" /><ChartPanel title="Renda mensal por membro" subtitle="Participação na renda mensal prevista." data={incomeChart} dataKey="share" valueKey="rent" /></section>
      <section className="panel division-table-panel"><div className="panel-heading"><div><h2>Comparativo entre membros</h2><p>Valores individuais já incorporam a fração de 25% dos imóveis compartilhados.</p></div></div><div className="table-wrap"><table className="division-table"><thead><tr><th>Membro</th><th>Patrimônio</th><th>% do total</th><th>Diferença da meta</th><th>Renda mensal</th><th>Diferença da meta</th></tr></thead><tbody>{metrics.members.map((member) => <tr key={member.id}><td><span className="division-member-name"><span className="member-color" style={{ background: member.color }} />{member.name}</span></td><td><strong>{brl(member.value)}</strong></td><td>{member.share.toFixed(1)}%</td><td className={member.valueDifference >= 0 ? "positive" : "negative"}>{member.valueDifference >= 0 ? "+" : "−"}{brl(Math.abs(member.valueDifference))}</td><td><strong>{brl(member.rent)}</strong></td><td className={member.rentDifference >= 0 ? "positive" : "negative"}>{member.rentDifference >= 0 ? "+" : "−"}{brl(Math.abs(member.rentDifference))}</td></tr>)}</tbody></table></div></section>
-     <EqualizationSummary metrics={metrics} transfers={equalizationTransfers} onDownload={() => downloadDivisionPdf({ simulationName, metrics, transfers: equalizationTransfers, units, assignments, divisionMode })} />
+     <EqualizationSummary metrics={metrics} members={memberConfig} transfers={equalizationTransfers} onDownload={() => downloadDivisionPdf({ simulationName, metrics, members: memberConfig, transfers: equalizationTransfers, units, assignments, divisionMode })} />
     {suggestedAssignments && <div className="modal-backdrop"><div className="edit-modal division-suggestion-modal"><div className="panel-heading"><div><div className="eyebrow"><BarChart3 size={13} /> Proposta automática</div><h2>Aplicar sugestão equilibrada?</h2><p>{suggestionMode === "building" ? "A proposta considera prédios inteiros." : "A proposta reorganiza unidades individuais."} {suggestionPriorities.value && suggestionPriorities.rent ? "Ela prioriza patrimônio e renda mensal." : suggestionPriorities.value ? "Ela prioriza o valor dos imóveis." : suggestionPriorities.rent ? "Ela prioriza a renda mensal." : "Ela busca equilibrar a quantidade de unidades."} O que já está compartilhado {keepShared ? "será mantido compartilhado" : "também poderá ser redistribuído"}.</p></div><button className="icon-btn" onClick={() => setSuggestedAssignments(null)} aria-label="Fechar"><X size={16} /></button></div><div className="suggestion-preview"><SuggestionPreview label="Estado atual" metrics={metrics} /><SuggestionPreview label="Após a sugestão" metrics={metricsForAssignments(suggestedAssignments, suggestionMode)} /></div><div className="division-suggestion-options"><label className="checkbox-field"><input type="checkbox" checked={suggestionPriorities.value} onChange={(event) => { const nextPriorities = { ...suggestionPriorities, value: event.target.checked }; setSuggestionPriorities(nextPriorities); setSuggestedAssignments(buildSuggestion(suggestionMode, keepShared, nextPriorities)); }} /> Priorizar valor dos imóveis</label><label className="checkbox-field"><input type="checkbox" checked={suggestionPriorities.rent} onChange={(event) => { const nextPriorities = { ...suggestionPriorities, rent: event.target.checked }; setSuggestionPriorities(nextPriorities); setSuggestedAssignments(buildSuggestion(suggestionMode, keepShared, nextPriorities)); }} /> Priorizar renda mensal</label><label className="checkbox-field"><input type="checkbox" checked={suggestionMode === "building"} onChange={(event) => { const nextMode = event.target.checked ? "building" : "unit"; setSuggestionMode(nextMode); setSuggestedAssignments(buildSuggestion(nextMode, keepShared, suggestionPriorities)); }} /> Considerar imóveis/prédios inteiros nesta sugestão</label><label className="checkbox-field"><input type="checkbox" checked={keepShared} onChange={(event) => { const nextKeepShared = event.target.checked; setKeepShared(nextKeepShared); setSuggestedAssignments(buildSuggestion(suggestionMode, nextKeepShared, suggestionPriorities)); }} /> Manter imóveis compartilhados fixos</label></div><div className="onboarding-actions"><button className="button button-ghost" onClick={() => setSuggestedAssignments(null)}>Cancelar</button><button className="button button-primary" onClick={() => { setDivisionMode(suggestionMode); setAssignments(suggestedAssignments); setSelectedInventoryId(null); setSuggestedAssignments(null); setDirty(true); setMessage("Sugestão aplicada. Revise e salve quando estiver pronto."); }}><Check size={14} /> Aplicar proposta</button></div></div></div>}
   </>}
   </div></TransferContext.Provider>;
+}
+
+function DivisionMemberConfiguration({ members, onCountChange, onRename, readOnly }: { members: DivisionMember[]; onCountChange: (value: string) => void; onRename: (id: DivisionMemberId, name: string) => void; readOnly: boolean }) {
+  return <section className="panel division-members-config"><div className="panel-heading"><div><div className="eyebrow"><UsersRound size={13} /> Participantes da divisão</div><h2>Quem participa desta simulação?</h2><p>Use nomes personalizados ou mantenha Membro 1, Membro 2 e assim por diante.</p></div><label className="division-member-count"><span>Quantidade</span><select value={members.length} disabled={readOnly} onChange={(event) => onCountChange(event.target.value)}>{Array.from({ length: 10 }, (_, index) => <option value={index + 1} key={index + 1}>{index + 1} {index === 0 ? "membro" : "membros"}</option>)}</select></label></div><div className="division-member-config-grid">{members.map((member, index) => <label className="division-member-config-field" key={member.id}><span className="member-color" style={{ background: member.color }} /><span>Membro {index + 1}</span><input value={member.name} disabled={readOnly} onChange={(event) => onRename(member.id, event.target.value)} onFocus={(event) => event.currentTarget.select()} aria-label={`Nome do Membro ${index + 1}`} /></label>)}</div></section>;
 }
 
 function DivisionMetric({ title, value, foot, icon }: { title: string; value: string; foot: string; icon: React.ReactNode }) {
   return <div className="metric-card"><div className="metric-top"><span>{title}</span><span className="metric-icon">{icon}</span></div><div className="metric-value">{value}</div><div className="metric-foot">{foot}</div></div>;
 }
 
-function EqualizationSummary({ metrics, transfers, onDownload }: { metrics: DivisionMetrics; transfers: EqualizationTransfer[]; onDownload: () => void }) {
-  return <section className="panel division-equalization-panel"><div className="panel-heading"><div><div className="eyebrow"><ArrowRightLeft size={13} /> Fechamento da divisão</div><h2>Resumo para igualar</h2><p>Transferências estimadas para que cada membro termine com o mesmo valor patrimonial.</p></div><button type="button" className="button button-primary" onClick={onDownload}><Download size={14} /> Gerar PDF</button></div>{transfers.length ? <div className="division-equalization-list">{transfers.map((transfer, index) => <div className="division-equalization-row" key={`${transfer.fromId}-${transfer.toId}-${index}`}><span className="division-equalization-person"><span className="member-color" style={{ background: divisionMembers.find((member) => member.id === transfer.fromId)?.color }} /><strong>{transfer.fromName}</strong><small>deve pagar</small></span><ArrowRightLeft size={15} className="division-equalization-arrow" /><span className="division-equalization-person"><span className="member-color" style={{ background: divisionMembers.find((member) => member.id === transfer.toId)?.color }} /><strong>{transfer.toName}</strong><small>deve receber</small></span><strong className="division-equalization-amount">{brl(transfer.amount)}</strong></div>)}</div> : <div className="division-equalization-empty"><Check size={18} /><div><strong>Divisão já igualitária</strong><span>Não há transferências estimadas entre os membros.</span></div></div>}<div className="division-equalization-note">Cálculo baseado em {brl(metrics.memberTargetValue)} de patrimônio alvo por membro. Imóveis compartilhados entram proporcionalmente para todos.</div></section>;
+function EqualizationSummary({ metrics, members, transfers, onDownload }: { metrics: DivisionMetrics; members: DivisionMember[]; transfers: EqualizationTransfer[]; onDownload: () => void }) {
+  return <section className="panel division-equalization-panel"><div className="panel-heading"><div><div className="eyebrow"><ArrowRightLeft size={13} /> Fechamento da divisão</div><h2>Resumo para igualar</h2><p>Transferências estimadas para que cada membro termine com o mesmo valor patrimonial.</p></div><button type="button" className="button button-primary" onClick={onDownload}><Download size={14} /> Gerar PDF</button></div>{transfers.length ? <div className="division-equalization-list">{transfers.map((transfer, index) => <div className="division-equalization-row" key={`${transfer.fromId}-${transfer.toId}-${index}`}><span className="division-equalization-person"><span className="member-color" style={{ background: members.find((member) => member.id === transfer.fromId)?.color }} /><strong>{transfer.fromName}</strong><small>deve pagar</small></span><ArrowRightLeft size={15} className="division-equalization-arrow" /><span className="division-equalization-person"><span className="member-color" style={{ background: members.find((member) => member.id === transfer.toId)?.color }} /><strong>{transfer.toName}</strong><small>deve receber</small></span><strong className="division-equalization-amount">{brl(transfer.amount)}</strong></div>)}</div> : <div className="division-equalization-empty"><Check size={18} /><div><strong>Divisão já igualitária</strong><span>Não há transferências estimadas entre os membros.</span></div></div>}<div className="division-equalization-note">Cálculo baseado em {brl(metrics.memberTargetValue)} de patrimônio alvo por membro. Imóveis compartilhados entram proporcionalmente para todos.</div></section>;
 }
 
-function InventoryCard({ unit, assignment, selected, onSelect, onDragStart }: { unit: DivisionUnit; assignment: DivisionAssignment; selected: boolean; onSelect: () => void; onDragStart: (event: React.DragEvent<HTMLDivElement>) => void }) {
-  return <div className={`division-unit-card ${selected ? "selected" : ""} ${assignment ? "assigned" : ""}`} draggable onDragStart={onDragStart} onClick={onSelect} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(); } }} role="button" tabIndex={0} aria-pressed={selected}><div className="division-unit-icon"><GripVertical size={14} /></div><div className="division-unit-main"><strong>{unit.code}</strong><span>{unit.buildingName} · {unit.type}{unit.quantity > 1 ? ` · ${unit.quantity} un.` : ""}</span><small><span className={`division-status status-${isOccupied(unit.status) ? "occupied" : "vacant"}`} /> {statusLabels[unit.status] ?? unit.status}</small></div><div className="division-unit-values"><strong className={unit.value == null ? "division-pending-value" : ""}>{valueLabel(unit.value)}</strong><small>{brl(unit.rent)}/mês</small></div>{assignment && <span className={`division-assignment-tag ${assignment === "shared" ? "shared" : ""}`}>{assignmentLabel(assignment)}</span>}</div>;
+function InventoryCard({ unit, assignment, selected, locked, onSelect, onDragStart }: { unit: DivisionUnit; assignment: DivisionAssignment; selected: boolean; locked: boolean; onSelect: () => void; onDragStart: (event: React.DragEvent<HTMLDivElement>) => void }) {
+  return <div className={`division-unit-card ${selected ? "selected" : ""} ${assignment ? "assigned" : ""} ${locked ? "locked" : ""}`} draggable={!locked} onDragStart={locked ? undefined : onDragStart} onClick={locked ? undefined : onSelect} onKeyDown={(event) => { if (!locked && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onSelect(); } }} role="button" tabIndex={locked ? -1 : 0} aria-pressed={selected} aria-disabled={locked}><div className="division-unit-icon">{locked ? <LockKeyhole size={13} /> : <GripVertical size={14} />}</div><div className="division-unit-main"><strong>{unit.code}</strong><span>{unit.buildingName} · {unit.type}{unit.quantity > 1 ? ` · ${unit.quantity} un.` : ""}</span><small><span className={`division-status status-${isOccupied(unit.status) ? "occupied" : "vacant"}`} /> {statusLabels[unit.status] ?? unit.status}</small></div><div className="division-unit-values"><strong className={unit.value == null ? "division-pending-value" : ""}>{valueLabel(unit.value)}</strong><small>{brl(unit.rent)}/mês</small></div>{assignment && <span className={`division-assignment-tag ${assignment === "shared" ? "shared" : ""}`}>{assignmentLabel(assignment, createDefaultDivisionMembers(4))}</span>}</div>;
 }
 
-function InventoryBuildingCard({ name, units, assignments, selected, onSelect, onDragStart }: { name: string; units: DivisionUnit[]; assignments: Record<string, DivisionAssignment>; selected: boolean; onSelect: () => void; onDragStart: (event: React.DragEvent<HTMLDivElement>) => void }) {
+function InventoryBuildingCard({ name, units, assignments, selected, locked, onSelect, onDragStart }: { name: string; units: DivisionUnit[]; assignments: Record<string, DivisionAssignment>; selected: boolean; locked: boolean; onSelect: () => void; onDragStart: (event: React.DragEvent<HTMLDivElement>) => void }) {
   const value = buildingValueOf(units);
   const rent = units.reduce((sum, unit) => sum + unit.rent, 0);
   const state = buildingDivisionState(units, assignments);
   const stateLabel = state === "available" ? "Disponível" : state === "shared" ? "Compartilhado" : "Distribuído";
-  return <div className={`division-building-card ${selected ? "selected" : ""}`} draggable onDragStart={onDragStart} onClick={onSelect} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(); } }} role="button" tabIndex={0} aria-pressed={selected}><div className="division-building-icon"><GripVertical size={14} /></div><div className="division-unit-main"><strong>{name}</strong><span>{units.reduce((sum, unit) => sum + unit.quantity, 0)} unidades cadastradas</span><small><span className={`division-status status-${state}`} /> {stateLabel}</small></div><div className="division-building-values"><strong>{valueLabel(value || null)}</strong><small>{brl(rent)}/mês</small></div></div>;
+  return <div className={`division-building-card ${selected ? "selected" : ""} ${locked ? "locked" : ""}`} draggable={!locked} onDragStart={locked ? undefined : onDragStart} onClick={locked ? undefined : onSelect} onKeyDown={(event) => { if (!locked && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onSelect(); } }} role="button" tabIndex={locked ? -1 : 0} aria-pressed={selected} aria-disabled={locked}><div className="division-building-icon">{locked ? <LockKeyhole size={13} /> : <GripVertical size={14} />}</div><div className="division-unit-main"><strong>{name}</strong><span>{units.reduce((sum, unit) => sum + unit.quantity, 0)} unidades cadastradas</span><small><span className={`division-status status-${state}`} /> {locked ? "Compartilhado pelo gestor" : stateLabel}</small></div><div className="division-building-values"><strong>{valueLabel(value || null)}</strong><small>{brl(rent)}/mês</small></div></div>;
 }
 
-function TransferDialog({ transfer }: { transfer: TransferContextValue }) {
+function TransferDialog({ transfer, members }: { transfer: TransferContextValue; members: DivisionMember[] }) {
   if (!transfer.source) return null;
-  const sourceName = divisionMembers.find((member) => member.id === transfer.source)?.name ?? "Membro";
-  const targetName = divisionMembers.find((member) => member.id === transfer.target)?.name ?? "outro membro";
-  return <div className="modal-backdrop"><section className="edit-modal division-transfer-modal"><div className="panel-heading"><div><div className="eyebrow"><ArrowRightLeft size={13} /> Troca em lote</div><h2>Trocar imóveis atribuídos</h2><p>{sourceName} receberá as {transfer.targetUnitCount} unidades de {targetName}, e {targetName} receberá as {transfer.sourceUnitCount} unidades de {sourceName}.</p></div><button className="icon-btn" onClick={transfer.cancel} aria-label="Fechar"><X size={16} /></button></div><label>Trocar com<select value={transfer.target ?? ""} onChange={(event) => transfer.setTarget(event.target.value as DivisionMemberId)}>{divisionMembers.filter((member) => member.id !== transfer.source).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={transfer.cancel}>Cancelar</button><button type="button" className="button button-primary" onClick={transfer.confirm} disabled={!transfer.target}><ArrowRightLeft size={14} /> Confirmar troca</button></div></section></div>;
+  const sourceName = members.find((member) => member.id === transfer.source)?.name ?? "Membro";
+  const targetName = members.find((member) => member.id === transfer.target)?.name ?? "outro membro";
+  return <div className="modal-backdrop"><section className="edit-modal division-transfer-modal"><div className="panel-heading"><div><div className="eyebrow"><ArrowRightLeft size={13} /> Troca em lote</div><h2>Trocar imóveis atribuídos</h2><p>{sourceName} receberá as {transfer.targetUnitCount} unidades de {targetName}, e {targetName} receberá as {transfer.sourceUnitCount} unidades de {sourceName}.</p></div><button className="icon-btn" onClick={transfer.cancel} aria-label="Fechar"><X size={16} /></button></div><label>Trocar com<select value={transfer.target ?? ""} onChange={(event) => transfer.setTarget(event.target.value as DivisionMemberId)}>{members.filter((member) => member.id !== transfer.source).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label><div className="onboarding-actions"><button type="button" className="button button-ghost" onClick={transfer.cancel}>Cancelar</button><button type="button" className="button button-primary" onClick={transfer.confirm} disabled={!transfer.target}><ArrowRightLeft size={14} /> Confirmar troca</button></div></section></div>;
 }
 
-function DestinationCard({ destination, units, metrics, divisionMode, selectedUnitId, onDrop, onSelectDestination, onDragStart, onRemove }: { destination: Destination; units: DivisionUnit[]; metrics: DivisionMetrics; divisionMode: "unit" | "building"; selectedUnitId: string | null; onDrop: (destination: Destination, event: React.DragEvent<HTMLDivElement>) => void; onSelectDestination: () => void; onDragStart: (event: React.DragEvent<HTMLDivElement>, unitId: string) => void; onRemove: (unitId: string) => void }) {
+function DestinationCard({ destination, members, units, metrics, divisionMode, selectedUnitId, locked, canPublishShared, sharedSaved, savingShared, onSaveShared, onDrop, onSelectDestination, onDragStart, onRemove }: { destination: Destination; members: DivisionMember[]; units: DivisionUnit[]; metrics: DivisionMetrics; divisionMode: "unit" | "building"; selectedUnitId: string | null; locked: boolean; canPublishShared?: boolean; sharedSaved?: boolean; savingShared?: boolean; onSaveShared?: () => void; onDrop: (destination: Destination, event: React.DragEvent<HTMLDivElement>) => void; onSelectDestination: () => void; onDragStart: (event: React.DragEvent<HTMLDivElement>, unitId: string) => void; onRemove: (unitId: string) => void }) {
   const transfer = useContext(TransferContext);
-  const member = destination === "shared" ? null : divisionMembers.find((item) => item.id === destination);
+  const member = destination === "shared" ? null : members.find((item) => item.id === destination);
   const memberTotals = member ? metrics.members.find((item) => item.id === member.id) : null;
   const unitCount = units.reduce((sum, unit) => sum + unit.quantity, 0);
   const value = destination === "shared" ? (divisionMode === "building" ? [...new Map(units.map((unit) => [unit.buildingId, unit])).values()].reduce((sum, unit) => sum + buildingValueOf(units.filter((item) => item.buildingId === unit.buildingId)), 0) : units.reduce((sum, unit) => sum + (unit.value ?? 0), 0)) : memberTotals?.value ?? 0;
   const rent = destination === "shared" ? units.reduce((sum, unit) => sum + unit.rent, 0) : memberTotals?.rent ?? 0;
-  return <><div className={`division-destination ${destination === "shared" ? "shared-destination" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => onDrop(destination, event)}><div className="division-destination-heading"><div className="division-destination-title"><span className="destination-avatar" style={{ background: member?.color ?? "#f0be4a" }}>{member ? <UserRound size={15} /> : <UsersRound size={15} />}</span><div><strong>{member ? `Membro · ${member.name}` : "Todos · Patrimônio compartilhado"}</strong><small>{member ? "Participação individual" : "25% para cada membro"}</small></div></div><div className="division-destination-actions">{member && units.length > 0 && transfer ? <button className="button button-small button-ghost" onClick={(event) => { event.stopPropagation(); transfer.open(member.id); }} title={`Trocar todos os imóveis de ${member.name}`}><ArrowRightLeft size={12} /> Trocar imóveis</button> : null}{selectedUnitId && <button className="button button-small button-ghost" onClick={onSelectDestination}><Plus size={12} /> Adicionar</button>}</div></div><div className="division-destination-stats"><span><small>Unidades</small><strong>{unitCount}</strong></span><span><small>Patrimônio</small><strong>{brl(value)}</strong></span><span><small>Renda mensal</small><strong>{brl(rent)}</strong></span><span><small>Renda anual</small><strong>{brl(rent * 12)}</strong></span></div><div className="division-drop-list">{units.length ? (divisionMode === "building" ? groupUnitsByBuilding(units).map(([buildingId, buildingUnits]) => <AssignedDestinationCard key={buildingId} units={buildingUnits} divisionMode={divisionMode} onDragStart={onDragStart} onRemove={onRemove} />) : units.map((unit) => <AssignedDestinationCard key={unit.id} units={[unit]} divisionMode={divisionMode} onDragStart={onDragStart} onRemove={onRemove} />)) : <div className="division-drop-placeholder"><Download size={16} /><span>{divisionMode === "building" ? "Solte um imóvel aqui" : "Solte uma unidade aqui"}</span></div>}</div></div>{destination === "shared" && transfer ? <TransferDialog transfer={transfer} /> : null}</>;
+  return <><div className={`division-destination ${destination === "shared" ? "shared-destination" : ""} ${locked ? "locked" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={locked ? undefined : (event) => onDrop(destination, event)}><div className="division-destination-heading"><div className="division-destination-title"><span className="destination-avatar" style={{ background: member?.color ?? "#f0be4a" }}>{locked ? <LockKeyhole size={15} /> : member ? <UserRound size={15} /> : <UsersRound size={15} />}</span><div><strong>{member ? `Membro · ${member.name}` : "Todos · Patrimônio compartilhado"}</strong><small>{member ? "Participação individual" : locked ? "Definido pelo gestor" : "25% para cada membro"}</small></div></div><div className="division-destination-actions">{canPublishShared && onSaveShared ? <button className="button button-small button-ghost" onClick={(event) => { event.stopPropagation(); onSaveShared(); }} disabled={savingShared}><Save size={12} /> {savingShared ? "Salvando…" : sharedSaved ? "Salvo para membros" : "Salvar para membros"}</button> : null}{member && units.length > 0 && transfer && !locked ? <button className="button button-small button-ghost" onClick={(event) => { event.stopPropagation(); transfer.open(member.id); }} title={`Trocar todos os imóveis de ${member.name}`}><ArrowRightLeft size={12} /> Trocar imóveis</button> : null}{selectedUnitId && !locked && <button className="button button-small button-ghost" onClick={onSelectDestination}><Plus size={12} /> Adicionar</button>}</div></div><div className="division-destination-stats"><span><small>Unidades</small><strong>{unitCount}</strong></span><span><small>Patrimônio</small><strong>{brl(value)}</strong></span><span><small>Renda mensal</small><strong>{brl(rent)}</strong></span><span><small>Renda anual</small><strong>{brl(rent * 12)}</strong></span></div><div className="division-drop-list">{units.length ? (divisionMode === "building" ? groupUnitsByBuilding(units).map(([buildingId, buildingUnits]) => <AssignedDestinationCard key={buildingId} units={buildingUnits} divisionMode={divisionMode} locked={locked} onDragStart={onDragStart} onRemove={onRemove} />) : units.map((unit) => <AssignedDestinationCard key={unit.id} units={[unit]} divisionMode={divisionMode} locked={locked} onDragStart={onDragStart} onRemove={onRemove} />)) : <div className="division-drop-placeholder"><Download size={16} /><span>{divisionMode === "building" ? "Solte um imóvel aqui" : "Solte uma unidade aqui"}</span></div>}</div></div>{destination === "shared" && transfer && !locked ? <TransferDialog transfer={transfer} members={members} /> : null}</>;
 }
 
-function AssignedDestinationCard({ units, divisionMode, onDragStart, onRemove }: { units: DivisionUnit[]; divisionMode: "unit" | "building"; onDragStart: (event: React.DragEvent<HTMLDivElement>, unitId: string) => void; onRemove: (unitId: string) => void }) {
+function AssignedDestinationCard({ units, divisionMode, locked, onDragStart, onRemove }: { units: DivisionUnit[]; divisionMode: "unit" | "building"; locked: boolean; onDragStart: (event: React.DragEvent<HTMLDivElement>, unitId: string) => void; onRemove: (unitId: string) => void }) {
   const buildingValue = units.reduce((sum, unit) => sum + (unit.value ?? 0), 0);
   const buildingRent = units.reduce((sum, unit) => sum + unit.rent, 0);
   const unitIds = units.map((unit) => unit.id);
   const label = units[0]?.buildingName ?? "Imóvel";
   const remove = () => units.forEach((unit) => onRemove(unit.id));
-  return <div className="division-assigned-card" draggable onDragStart={(event) => { const ids = divisionMode === "building" ? unitIds : [unitIds[0]]; event.dataTransfer.setData("application/x-division-units", JSON.stringify(ids)); event.dataTransfer.setData("text/plain", JSON.stringify(ids)); if (divisionMode === "unit" && unitIds[0]) onDragStart(event, unitIds[0]); }}><GripVertical size={13} /><div><strong>{divisionMode === "building" ? label : units[0]?.code}</strong><small>{divisionMode === "building" ? `${units.reduce((sum, unit) => sum + unit.quantity, 0)} unidades · ${brl(buildingRent)}/mês` : `${units[0]?.buildingName} · ${units[0]?.type}`}</small></div><span>{divisionMode === "building" ? compactBrl(buildingValue) : units[0]?.value == null ? "—" : compactBrl(units[0].value)}</span><button className="icon-btn" onClick={(event) => { event.stopPropagation(); remove(); }} aria-label={`Remover ${label}`}><X size={13} /></button></div>;
+  return <div className={`division-assigned-card ${locked ? "locked" : ""}`} draggable={!locked} onDragStart={locked ? undefined : (event) => { const ids = divisionMode === "building" ? unitIds : [unitIds[0]]; event.dataTransfer.setData("application/x-division-units", JSON.stringify(ids)); event.dataTransfer.setData("text/plain", JSON.stringify(ids)); if (divisionMode === "unit" && unitIds[0]) onDragStart(event, unitIds[0]); }}><>{locked ? <LockKeyhole size={13} /> : <GripVertical size={13} />}</><div><strong>{divisionMode === "building" ? label : units[0]?.code}</strong><small>{divisionMode === "building" ? `${units.reduce((sum, unit) => sum + unit.quantity, 0)} unidades · ${brl(buildingRent)}/mês` : `${units[0]?.buildingName} · ${units[0]?.type}`}</small></div><span>{divisionMode === "building" ? compactBrl(buildingValue) : units[0]?.value == null ? "—" : compactBrl(units[0].value)}</span>{!locked && <button className="icon-btn" onClick={(event) => { event.stopPropagation(); remove(); }} aria-label={`Remover ${label}`}><X size={13} /></button>}</div>;
 }
 
 function groupUnitsByBuilding(units: DivisionUnit[]) {
