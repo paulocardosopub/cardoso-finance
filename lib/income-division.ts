@@ -20,6 +20,11 @@ export type IncomeDivisionMemberSummary = IncomeDivisionMember & {
 export type IncomeDivisionCalculation = {
   month: string;
   targetAmount: number;
+  monthlyIncome: number;
+  availableAmount: number;
+  totalToReceive: number;
+  remainingAmount: number;
+  withinAvailable: boolean;
   holdingTotal: number;
   expenseTotal: number;
   applicableExpenses: number;
@@ -55,7 +60,7 @@ function assignmentMatches(member: IncomeDivisionMember, assignment: { user_id?:
   return Boolean((member.userId && assignment.user_id === member.userId) || (member.contactId && assignment.contact_id === member.contactId));
 }
 
-export function calculateIncomeDivision(expenses: ExpenseRecord[], sourceMembers: IncomeDivisionMember[], month: string, targetAmount: number): IncomeDivisionCalculation {
+export function calculateIncomeDivision(expenses: ExpenseRecord[], sourceMembers: IncomeDivisionMember[], month: string, targetAmount: number, monthlyIncome = 0): IncomeDivisionCalculation {
   const members = sourceMembers.filter((member) => Boolean(member.userId || member.contactId || member.memberId));
   const ownershipTotal = members.reduce((total, member) => total + Number(member.ownershipPercentage || 0), 0);
   const equalWeight = members.length ? 1 / members.length : 0;
@@ -87,5 +92,8 @@ export function calculateIncomeDivision(expenses: ExpenseRecord[], sourceMembers
     const totalExpenses = personalExpenses + holdingExpenses;
     return { ...member, ref, personalExpenses, holdingExpenses, totalExpenses, targetAmount, netAmount: targetAmount - totalExpenses };
   });
-  return { month, targetAmount, holdingTotal, expenseTotal, applicableExpenses: applicable.length, members: summaries };
+  const totalToReceive = summaries.reduce((sum, member) => sum + member.netAmount, 0);
+  const availableAmount = monthlyIncome - expenseTotal;
+  const remainingAmount = availableAmount - totalToReceive;
+  return { month, targetAmount, monthlyIncome, availableAmount, totalToReceive, remainingAmount, withinAvailable: totalToReceive <= availableAmount + 0.01, holdingTotal, expenseTotal, applicableExpenses: applicable.length, members: summaries };
 }
