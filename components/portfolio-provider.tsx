@@ -346,6 +346,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "revenues", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
       .on("postgres_changes", { event: "*", schema: "public", table: "property_units", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
       .on("postgres_changes", { event: "*", schema: "public", table: "leases", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenses", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "expense_responsibilities", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "income_division_reports", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "income_division_report_items", filter: `organization_id=eq.${value.organizationId}` }, () => { void refresh({ silent: true }); })
       .subscribe();
     let lastFocusRefresh = 0;
     const onFocus = () => {
