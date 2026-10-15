@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { brl } from "@/lib/format";
-import type { DivisionMetrics, EqualizationTransfer } from "@/lib/division";
+import { divisionMembers, type DivisionAssignment, type DivisionMetrics, type DivisionUnit, type EqualizationTransfer } from "@/lib/division";
 
 type PdfDocument = jsPDF & { lastAutoTable?: { finalY: number } };
 
@@ -14,7 +14,7 @@ function fileName(value: string) {
   return normalized || "divisao-patrimonial";
 }
 
-export function downloadDivisionPdf({ simulationName, metrics, transfers }: { simulationName: string; metrics: DivisionMetrics; transfers: EqualizationTransfer[] }) {
+export function downloadDivisionPdf({ simulationName, metrics, transfers, units, assignments, divisionMode }: { simulationName: string; metrics: DivisionMetrics; transfers: EqualizationTransfer[]; units: DivisionUnit[]; assignments: Record<string, DivisionAssignment>; divisionMode: "unit" | "building" }) {
   const doc = new jsPDF({ unit: "mm", format: "a4" }) as PdfDocument;
   const margin = 14;
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -77,6 +77,18 @@ export function downloadDivisionPdf({ simulationName, metrics, transfers }: { si
   table(["Membro que paga", "Membro que recebe", "Valor"], transfers.length
     ? transfers.map((transfer) => [transfer.fromName, transfer.toName, brl(transfer.amount)])
     : [["Divisão já igualitária", "-", brl(0)]]);
+
+  const assignmentName = (assignment: DivisionAssignment) => assignment === "shared" ? "Compartilhado" : divisionMembers.find((member) => member.id === assignment)?.name ?? "Pendente";
+  const allocationRows = divisionMode === "building"
+    ? [...new Map(units.map((unit) => [unit.buildingId, units.filter((item) => item.buildingId === unit.buildingId)])).values()].map((buildingUnits) => {
+      const firstAssignment = assignments[buildingUnits[0]?.id] ?? null;
+      const sameAssignment = buildingUnits.every((unit) => (assignments[unit.id] ?? null) === firstAssignment);
+      const buildingValue = buildingUnits.find((unit) => unit.buildingValue != null)?.buildingValue ?? buildingUnits.reduce((sum, unit) => sum + (unit.value ?? 0), 0);
+      return [assignmentName(sameAssignment ? firstAssignment : null), buildingUnits[0]?.buildingName ?? "Imóvel", brl(buildingValue), brl(buildingUnits.reduce((sum, unit) => sum + unit.rent, 0))];
+    })
+    : units.map((unit) => [assignmentName(assignments[unit.id] ?? null), `${unit.buildingName} · ${unit.code}`, brl(unit.value ?? 0), brl(unit.rent)]);
+  sectionTitle("Distribuição atual");
+  table(["Destino", "Imóvel / unidade", "Patrimônio", "Renda mensal"], allocationRows.length ? allocationRows : [["Pendente", "Nenhum item cadastrado", brl(0), brl(0)]]);
 
   sectionTitle("Patrimônio por membro");
   table(["Membro", "Patrimônio", "% do total", "Diferença da meta"], metrics.members.map((member) => [
