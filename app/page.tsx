@@ -118,6 +118,8 @@ type RecentActivityProps = {
 
 type RecentActivityRow = { id: string; event_type: string; amount: number; description: string; occurred_at: string; created_by: string | null; source_payment_id: string | null };
 
+type PublishedIncomeReport = { competence: string; net_amount: number; sent_at: string | null };
+
 function RecentActivity({ organizationId, userName, previewMembers }: RecentActivityProps) {
   const [rows, setRows] = useState<RecentActivityRow[]>([]);
 
@@ -146,6 +148,8 @@ function MemberDashboard({ buildings, organizationId, userName, viewedMemberName
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [monthlySummary, setMonthlySummary] = useState(summary);
   const [monthlySummaryLoading, setMonthlySummaryLoading] = useState(false);
+  const [publishedIncomeReport, setPublishedIncomeReport] = useState<PublishedIncomeReport | null>(null);
+  const [publishedIncomeLoading, setPublishedIncomeLoading] = useState(true);
   useEffect(() => {
     let active = true;
     if (selectedMonth === currentMonth) {
@@ -176,6 +180,42 @@ function MemberDashboard({ buildings, organizationId, userName, viewedMemberName
     });
     return () => { active = false; };
   }, [currentMonth, organizationId, selectedMonth, summary, targetMemberContact, targetMemberUser]);
+  useEffect(() => {
+    let active = true;
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase || !organizationId) {
+      setPublishedIncomeReport(null);
+      setPublishedIncomeLoading(false);
+      return () => { active = false; };
+    }
+
+    const loadPublishedIncome = async () => {
+      setPublishedIncomeLoading(true);
+      const result = await supabase.rpc("list_member_income_reports", {
+        target_org: organizationId,
+        target_member_user: targetMemberUser ?? null,
+        target_member_contact: targetMemberContact ?? null,
+      });
+      if (!active) return;
+      const reports = result.error ? [] : (result.data ?? []) as Array<{ competence?: string; net_amount?: number; sent_at?: string | null }>;
+      const report = reports.find((item) => String(item.competence ?? "").slice(0, 7) === selectedMonth);
+      setPublishedIncomeReport(report ? { competence: String(report.competence), net_amount: Number(report.net_amount ?? 0), sent_at: report.sent_at ?? null } : null);
+      setPublishedIncomeLoading(false);
+    };
+
+    void loadPublishedIncome();
+    const channel = supabase.channel(`member-income-report-${organizationId}-${selectedMonth}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "income_division_reports", filter: `organization_id=eq.${organizationId}` }, () => { void loadPublishedIncome(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "income_division_report_items", filter: `organization_id=eq.${organizationId}` }, () => { void loadPublishedIncome(); })
+      .subscribe();
+    const onFocus = () => { void loadPublishedIncome(); };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", onFocus);
+      void supabase.removeChannel(channel);
+    };
+  }, [organizationId, selectedMonth, targetMemberContact, targetMemberUser]);
   const totalOccupied = buildings.reduce((sum, building) => sum + building.occupied, 0);
   const totalUnits = buildings.reduce((sum, building) => sum + building.units, 0);
   const statusCounts = buildings.reduce<Record<string, number>>((counts, building) => ({ ...counts, [building.status]: (counts[building.status] ?? 0) + 1 }), {});
@@ -187,7 +227,7 @@ function MemberDashboard({ buildings, organizationId, userName, viewedMemberName
       {visibility.showTotalAssets && <><Metric href="/patrimonio" icon={<CircleDollarSign size={15} />} label="Seu patrimônio" value={compactBrl(summary.totalValue)} foot="Sua participação proporcional" positive /><Metric href="/patrimonio" icon={<Landmark size={15} />} label="Patrimônio total da holding" value={compactBrl(summary.holdingTotalValue)} foot="Valor total dos imóveis" positive /></>}
       <Metric href="/imoveis" icon={<Building2 size={15} />} label="Imóveis" value={String(summary.totalBuildings)} foot={`${summary.totalUnits || totalUnits} unidades cadastradas`} positive />
       {visibility.showPropertyStatus && <Metric href="/imoveis?filter=vagos" icon={<Landmark size={15} />} label="Ocupação" value={`${totalUnits ? Math.round(totalOccupied / totalUnits * 100) : 0}%`} foot={`${totalOccupied} de ${totalUnits} unidades`} positive />}
-      {visibility.showRentalInfo && <><Metric href="/creditos" icon={<ArrowUpRight size={15} />} label="Aluguéis recebidos no mês" value={monthlySummaryLoading ? "—" : brl(monthlySummary.paidRent ?? 0)} foot={`Pagamentos confirmados em ${monthLabel(selectedMonth)}`} positive /><Metric href="/creditos" icon={<ArrowUpRight size={15} />} label="Sua receita líquida mensal" value={monthlySummaryLoading ? "—" : brl(monthlySummary.netRevenue ?? monthlySummary.totalRent)} foot={`${monthlySummary.ownershipPercentage.toFixed(2).replace(".", ",")}% da receita, após despesas`} positive={(monthlySummary.netRevenue ?? monthlySummary.totalRent) >= 0} /></>}
+      {visibility.showRentalInfo && <><Metric href="/creditos" icon={<ArrowUpRight size={15} />} label="Aluguéis recebidos no mês" value={monthlySummaryLoading ? "—" : brl(monthlySummary.paidRent ?? 0)} foot={`Pagamentos confirmados em ${monthLabel(selectedMonth)}`} positive /><Metric href="/recebimentos" icon={<ArrowUpRight size={15} />} label="Sua receita mensal pós relatório" value={publishedIncomeLoading ? "—" : publishedIncomeReport ? brl(publishedIncomeReport.net_amount) : "Aguarde o fechamento do mês"} foot={publishedIncomeReport ? `Relatório enviado em ${publishedIncomeReport.sent_at ? new Date(publishedIncomeReport.sent_at).toLocaleDateString("pt-BR") : "data não informada"}` : "O gestor ainda não enviou o relatório deste mês"} positive={publishedIncomeReport ? publishedIncomeReport.net_amount >= 0 : undefined} /></>}
     </section>
     <section className="dashboard-grid">
       {visibility.showPropertyValues && <div className="panel"><div className="panel-heading"><div><h2>Patrimônio por imóvel</h2><p>Distribuição dos valores compartilhados</p></div></div><WealthChart buildings={buildings} /></div>}
