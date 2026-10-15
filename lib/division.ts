@@ -56,6 +56,14 @@ export type DivisionSuggestionPriorities = {
   rent: boolean;
 };
 
+export type EqualizationTransfer = {
+  fromId: DivisionMemberId;
+  fromName: string;
+  toId: DivisionMemberId;
+  toName: string;
+  amount: number;
+};
+
 function valueOf(unit: DivisionUnit) {
   return unit.value ?? 0;
 }
@@ -114,6 +122,36 @@ export function calculateDivision(units: DivisionUnit[], assignments: Record<str
     incomeBalance,
     consolidatedBalance: propertyBalance == null || incomeBalance == null ? null : (propertyBalance + incomeBalance) / 2,
   };
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+/** Builds the smallest readable set of payments needed to equalize property value. */
+export function calculateEqualization(metrics: DivisionMetrics): EqualizationTransfer[] {
+  const debtors = metrics.members
+    .map((member) => ({ member, amount: member.value - metrics.memberTargetValue }))
+    .filter(({ amount }) => amount > 0.01)
+    .map(({ member, amount }) => ({ member, amount }));
+  const receivers = metrics.members
+    .map((member) => ({ member, amount: metrics.memberTargetValue - member.value }))
+    .filter(({ amount }) => amount > 0.01)
+    .map(({ member, amount }) => ({ member, amount }));
+  const transfers: EqualizationTransfer[] = [];
+  let debtorIndex = 0;
+  let receiverIndex = 0;
+  while (debtorIndex < debtors.length && receiverIndex < receivers.length) {
+    const debtor = debtors[debtorIndex];
+    const receiver = receivers[receiverIndex];
+    const amount = roundMoney(Math.min(debtor.amount, receiver.amount));
+    if (amount > 0) transfers.push({ fromId: debtor.member.id, fromName: debtor.member.name, toId: receiver.member.id, toName: receiver.member.name, amount });
+    debtor.amount -= amount;
+    receiver.amount -= amount;
+    if (debtor.amount <= 0.01) debtorIndex += 1;
+    if (receiver.amount <= 0.01) receiverIndex += 1;
+  }
+  return transfers;
 }
 
 function projectedPenalty(units: DivisionUnit[], assignments: Record<string, DivisionAssignment>, priorities: DivisionSuggestionPriorities) {
