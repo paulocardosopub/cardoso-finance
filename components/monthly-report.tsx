@@ -7,6 +7,7 @@ import autoTable from "jspdf-autotable";
 import type { Building, ExpenseRecord, LeasePaymentRecord, PropertyUnit } from "@/types/domain";
 import { unitRentActiveInMonth } from "@/lib/month";
 import { brl } from "@/lib/format";
+import { buildingIsForSale } from "@/lib/building-order";
 
 export type ReportPaymentStatus = "paid" | "waived" | "partial" | "pending" | "overdue" | "no_lease";
 export type ReportCategory = "summary" | "properties" | "unpaid";
@@ -38,6 +39,8 @@ export type ReportBuilding = {
   name: string;
   city: string;
   state: string;
+  forSale: boolean;
+  nearSale: boolean;
   units: ReportUnit[];
   totalUnits: number;
   occupiedUnits: number;
@@ -148,7 +151,7 @@ export function buildMonthlyReport(buildings: Building[], payments: LeasePayment
     const occupiedUnits = units.filter((unit) => unit.status !== "no_lease").reduce((total, unit) => total + Math.max(1, unit.quantity || 1), 0);
     const expectedAmount = units.reduce((total, unit) => total + unit.expectedAmount, 0);
     const receivedAmount = units.reduce((total, unit) => total + unit.receivedAmount, 0);
-    return { id: building.id, name: building.name, city: building.city, state: building.state, units, totalUnits, occupiedUnits, expectedAmount, receivedAmount, paymentRate: expectedAmount > 0 ? Math.min(100, Math.round((receivedAmount / expectedAmount) * 100)) : 0 } satisfies ReportBuilding;
+    return { id: building.id, name: building.name, city: building.city, state: building.state, forSale: buildingIsForSale(building), nearSale: Boolean(building.saleProximity), units, totalUnits, occupiedUnits, expectedAmount, receivedAmount, paymentRate: expectedAmount > 0 ? Math.min(100, Math.round((receivedAmount / expectedAmount) * 100)) : 0 } satisfies ReportBuilding;
   });
   const allUnits = reportBuildings.flatMap((building) => building.units);
   const chargedUnits = allUnits.filter((unit) => unit.status !== "no_lease");
@@ -189,6 +192,17 @@ function hasCategory(categories: ReportCategorySelection, category: ReportCatego
 
 function pdfText(value: string) {
   return value.replace(/[·−—]/g, "-").replace(/…/g, "...");
+}
+
+function reportFileName(month: string) {
+  const monthName = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(new Date(`${month}-01T12:00:00`));
+  const normalizedMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+  const safeMonth = normalizedMonth.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return `Report_CardosoFinance_${safeMonth}${month.slice(2, 4)}.pdf`;
+}
+
+function propertyHighlightLabels(building: Pick<ReportBuilding, "forSale" | "nearSale">) {
+  return [building.forSale ? "À venda" : "", building.nearSale ? "Próximo de vender" : ""].filter(Boolean);
 }
 
 type PdfDocument = jsPDF & { lastAutoTable?: { finalY: number } };
@@ -311,10 +325,21 @@ export function downloadMonthlyReportPdf(report: MonthlyReportData, categories: 
     sectionTitle("Detalhamento por imóvel", "Unidades, inquilinos e status de pagamento");
     for (const building of report.buildings) {
       if (!building.units.length) continue;
-      ensureSpace(22);
+      const highlights = propertyHighlightLabels(building);
+      ensureSpace(highlights.length ? 30 : 22);
       setText(colors.text); doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.text(pdfText(shortText(`${building.name}${building.city ? ` - ${building.city}${building.state ? `/${building.state}` : ""}` : ""}`, 70)), margin, cursor);
       setText(colors.green); doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.text(`${building.paymentRate}% pago · ${brl(building.receivedAmount)} / ${brl(building.expectedAmount)}`, pageWidth - margin, cursor, { align: "right" });
-      cursor += 5;
+      if (highlights.length) {
+        let highlightX = margin;
+        for (const highlight of highlights) {
+          const highlightWidth = doc.getTextWidth(pdfText(highlight)) + 8;
+          const highlightColor = highlight === "À venda" ? colors.red : colors.amber;
+          setFill(highlightColor); doc.roundedRect(highlightX, cursor + 3, highlightWidth, 4.5, 1.5, 1.5, "F");
+          setText(colors.bg); doc.setFont("helvetica", "bold"); doc.setFontSize(6); doc.text(pdfText(highlight), highlightX + 4, cursor + 6.1);
+          highlightX += highlightWidth + 3;
+        }
+        cursor += 11;
+      } else cursor += 5;
       table(["Unidade", "Inquilino", "Previsto", "Recebido", "Status"], building.units.map((unit) => [unit.code, unit.status === "no_lease" ? "-" : unit.tenant, unit.status === "no_lease" ? "-" : brl(unit.expectedAmount), unit.status === "no_lease" ? "-" : brl(unit.receivedAmount), statusLabels[unit.status]]));
     }
   }
@@ -323,7 +348,7 @@ export function downloadMonthlyReportPdf(report: MonthlyReportData, categories: 
     table(["Inquilino", "Imóvel / unidade", "Vencimento", "Em aberto", "Status"], report.unpaidTenants.length ? report.unpaidTenants.map((tenant) => [tenant.tenant, tenant.units.join("; "), tenant.dueDates.length ? tenant.dueDates.map(dateLabel).join(", ") : "Sem vencimento", brl(Math.max(0, tenant.expectedAmount - tenant.receivedAmount)), statusLabels[tenant.status]]) : [["Nenhuma pendência", "-", "-", brl(0), "Pago ou isento"]]);
   }
   for (let page = 1; page <= doc.getNumberOfPages(); page++) { doc.setPage(page); drawFooter(page); }
-  doc.save(`report-${report.month}.pdf`);
+  doc.save(reportFileName(report.month));
 }
 
 export function ReportRequestDialog({ initialMonth, onClose, onGenerate }: { initialMonth: string; onClose: () => void; onGenerate: (month: string, categories: ReportCategorySelection, download: boolean) => void }) {
@@ -346,7 +371,13 @@ export function MonthlyReport({ report, categories, onClose }: { report: Monthly
       <div className="report-modal-heading"><div><div className="eyebrow"><FileText size={13} /> Report mensal</div><h2 id="monthly-report-title">Report geral · {report.monthLabel}</h2><p>Visão consolidada das informações marcadas na solicitação.</p></div><button type="button" className="icon-btn" onClick={onClose} aria-label="Fechar report"><X size={18} /></button></div>
       {hasCategory(categories, "summary") && <div className="report-summary-grid"><ReportMetric label="Recebido no mês" value={brl(report.receivedRevenue)} detail={`de ${brl(report.expectedRevenue)} previsto`} tone="positive" icon={<CircleDollarSign size={15} />} /><ReportMetric label="Pagamento recebido" value={`${report.paymentRate}%`} detail={`${report.paidUnits} de ${report.chargedUnits} cobranças pagas`} tone="positive" icon={<CircleDollarSign size={15} />} /><ReportMetric label="Despesas registradas" value={brl(report.expenses)} detail="Na competência selecionada" icon={<FileText size={15} />} /><ReportMetric label="Inquilinos pendentes" value={String(report.unpaidTenants.length)} detail={`${report.unpaidUnits} unidade${report.unpaidUnits === 1 ? "" : "s"} sem quitação integral`} tone={report.unpaidTenants.length ? "negative" : "positive"} icon={<Users size={15} />} /></div>}
       {hasCategory(categories, "summary") && <ReportVisuals report={report} />}
-      {hasCategory(categories, "properties") && <section className="report-section"><div className="report-section-heading"><div><h3>Prédios, imóveis e unidades</h3><p>{report.buildings.length} imóveis · {report.totalUnits} unidades cadastradas · {report.chargedUnits} com cobrança no mês</p></div></div>{report.buildings.length ? <div className="report-building-list">{report.buildings.map((building) => <div className="report-building" key={building.id}><div className="report-building-heading"><div><strong>{building.name}</strong><small>{[building.city, building.state].filter(Boolean).join(" · ") || "Localização não informada"}</small></div><span>{building.units.length} unidade{building.units.length === 1 ? "" : "s"} · {building.paymentRate}% pago</span></div>{building.units.length ? <div className="table-wrap"><table className="report-table"><thead><tr><th>Unidade</th><th>Inquilino</th><th>Previsto</th><th>Recebido</th><th>Status</th></tr></thead><tbody>{building.units.map((unit) => <tr key={unit.id}><td><strong>{unit.code}</strong><small>{unit.type}{unit.quantity > 1 ? ` · ${unit.quantity} unidades` : ""}</small></td><td>{unit.status === "no_lease" ? "-" : unit.tenant}</td><td>{unit.status === "no_lease" ? "-" : brl(unit.expectedAmount)}</td><td>{unit.status === "no_lease" ? "-" : brl(unit.receivedAmount)}</td><td><span className={`report-status report-status-${unit.status}`}>{statusLabels[unit.status]}</span>{unit.status !== "no_lease" && <small>{unit.status === "paid" || unit.status === "waived" ? "Competência quitada" : dateLabel(unit.dueDate)}</small>}</td></tr>)}</tbody></table></div> : <p className="report-empty-line">Nenhuma unidade cadastrada neste imóvel.</p>}</div>)}</div> : <div className="empty-state report-empty"><FileText size={28} /><h3>Nenhum imóvel encontrado</h3><p>Não há imóveis disponíveis para esta organização.</p></div>}</section>}
+      {hasCategory(categories, "properties") && <section className="report-section">
+        <div className="report-section-heading"><div><h3>Prédios, imóveis e unidades</h3><p>{report.buildings.length} imóveis · {report.totalUnits} unidades cadastradas · {report.chargedUnits} com cobrança no mês</p></div></div>
+        {report.buildings.length ? <div className="report-building-list">{report.buildings.map((building) => {
+          const highlights = propertyHighlightLabels(building);
+          return <div className="report-building" key={building.id}><div className="report-building-heading"><div><strong>{building.name}</strong><small>{[building.city, building.state].filter(Boolean).join(" · ") || "Localização não informada"}</small>{highlights.length > 0 && <div className="report-building-flags">{highlights.map((highlight) => <span className={`report-building-flag ${highlight === "À venda" ? "sale" : "near-sale"}`} key={highlight}>{highlight}</span>)}</div>}</div><span>{building.units.length} unidade{building.units.length === 1 ? "" : "s"} · {building.paymentRate}% pago</span></div>{building.units.length ? <div className="table-wrap"><table className="report-table"><thead><tr><th>Unidade</th><th>Inquilino</th><th>Previsto</th><th>Recebido</th><th>Status</th></tr></thead><tbody>{building.units.map((unit) => <tr key={unit.id}><td><strong>{unit.code}</strong><small>{unit.type}{unit.quantity > 1 ? ` · ${unit.quantity} unidades` : ""}</small></td><td>{unit.status === "no_lease" ? "-" : unit.tenant}</td><td>{unit.status === "no_lease" ? "-" : brl(unit.expectedAmount)}</td><td>{unit.status === "no_lease" ? "-" : brl(unit.receivedAmount)}</td><td><span className={`report-status report-status-${unit.status}`}>{statusLabels[unit.status]}</span>{unit.status !== "no_lease" && <small>{unit.status === "paid" || unit.status === "waived" ? "Competência quitada" : dateLabel(unit.dueDate)}</small>}</td></tr>)}</tbody></table></div> : <p className="report-empty-line">Nenhuma unidade cadastrada neste imóvel.</p>}</div>;
+        })}</div> : <div className="empty-state report-empty"><FileText size={28} /><h3>Nenhum imóvel encontrado</h3><p>Não há imóveis disponíveis para esta organização.</p></div>}
+      </section>}
       {hasCategory(categories, "unpaid") && <section className="report-section"><div className="report-section-heading"><div><h3>Inquilinos que não pagaram</h3><p>Pendências agrupadas por inquilino, sem duplicar quem ocupa mais de uma unidade.</p></div><span className={report.unpaidTenants.length ? "negative" : "positive"}>{report.unpaidTenants.length} pendência{report.unpaidTenants.length === 1 ? "" : "s"}</span></div>{report.unpaidTenants.length ? <div className="table-wrap"><table className="report-table report-unpaid-table"><thead><tr><th>Inquilino</th><th>Imóvel / unidade</th><th>Vencimento</th><th>Em aberto</th><th>Status</th></tr></thead><tbody>{report.unpaidTenants.map((tenant) => <tr key={tenant.id}><td><strong>{tenant.tenant}</strong></td><td>{tenant.units.join("; ")}</td><td>{tenant.dueDates.length ? tenant.dueDates.map(dateLabel).join(", ") : "Sem vencimento"}</td><td className="negative"><strong>{brl(Math.max(0, tenant.expectedAmount - tenant.receivedAmount))}</strong><small>de {brl(tenant.expectedAmount)}</small></td><td><span className={`report-status report-status-${tenant.status}`}>{statusLabels[tenant.status]}</span></td></tr>)}</tbody></table></div> : <div className="report-success"><Users size={19} /><div><strong>Nenhuma pendência identificada</strong><p>Todos os inquilinos com cobrança no mês estão pagos ou isentos.</p></div></div>}</section>}
       <div className="report-modal-footer">{hasCategory(categories, "summary") && <span>Resultado líquido recebido - despesas: <strong className={report.netResult < 0 ? "negative" : "positive"}>{brl(report.netResult)}</strong></span>}<div className="report-request-actions"><button type="button" className="button button-ghost" onClick={() => downloadMonthlyReportPdf(report, categories)}><Download size={14} /> Baixar PDF</button><button type="button" className="button button-ghost" onClick={onClose}>Fechar report</button></div></div>
     </section>
