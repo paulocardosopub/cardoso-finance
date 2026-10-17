@@ -8,6 +8,7 @@ import type { Building, ExpenseRecord, LeasePaymentRecord, PropertyUnit } from "
 import { unitRentActiveInMonth } from "@/lib/month";
 import { brl } from "@/lib/format";
 import { buildingIsForSale } from "@/lib/building-order";
+import { expenseAppliesToMonth } from "@/lib/income-division";
 
 export type ReportPaymentStatus = "paid" | "waived" | "partial" | "pending" | "overdue" | "no_lease";
 export type ReportCategory = "summary" | "properties" | "unpaid" | "work";
@@ -243,7 +244,7 @@ export function buildMonthlyReport(buildings: Building[], payments: LeasePayment
   const receivedRevenue = chargedUnits.reduce((total, unit) => total + unit.receivedAmount, 0);
   const occupiedUnits = allUnits.filter((unit) => unit.status !== "no_lease").reduce((total, unit) => total + Math.max(1, unit.quantity || 1), 0);
   const totalUnitCount = allUnits.reduce((total, unit) => total + Math.max(1, unit.quantity || 1), 0);
-  const monthExpenses = expenses.filter((expense) => expense.competence?.slice(0, 7) === month || expense.expense_date?.slice(0, 7) === month).reduce((total, expense) => total + Number(expense.value || 0), 0);
+  const monthExpenses = expenses.filter((expense) => expenseAppliesToMonth(expense, month)).reduce((total, expense) => total + Number(expense.value || 0), 0);
   const employeeWorkRows = activities.filter((activity) => activity.actorRole === "employee" && activity.occurredAt.slice(0, 7) === month).sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
   const employeeWorkCredits = employeeWorkRows.filter((activity) => activity.eventType === "credit").reduce((total, activity) => total + activity.amount, 0);
   const employeeWorkDebits = employeeWorkRows.filter((activity) => activity.eventType === "debit").reduce((total, activity) => total + activity.amount, 0);
