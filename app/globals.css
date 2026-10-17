@@ -438,6 +438,10 @@ td small { display:flex; align-items:center; gap:4px; color:var(--muted); font-s
 .report-building-heading strong { display:block; font-size:12px; }
 .report-building-heading small { display:block; color:var(--muted); font-size:10px; margin-top:4px; }
 .report-building-heading > span { color:var(--muted); font-size:10px; white-space:nowrap; }
+.report-building-summary { display:grid; justify-items:end; gap:5px; color:var(--muted); font-size:10px; text-align:right; white-space:nowrap; }
+.report-building-summary strong { color:var(--muted); font-size:10px; }
+.report-building-summary strong.for-sale { color:#ffb6b6; }
+.report-building-summary strong.near-sale { color:#f0be4a; }
 .report-building-flags { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:7px; }
 .report-building-flag { display:inline-flex; align-items:center; padding:4px 7px; border:1px solid; border-radius:5px; font-size:9px; font-weight:700; line-height:1; }
 .report-building-flag.sale { color:#ffb6b6; border-color:rgba(255,140,140,.4); background:rgba(255,140,140,.1); }

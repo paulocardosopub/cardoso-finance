@@ -39,6 +39,7 @@ export type ReportBuilding = {
   name: string;
   city: string;
   state: string;
+  value: number;
   forSale: boolean;
   nearSale: boolean;
   units: ReportUnit[];
@@ -127,9 +128,46 @@ function tenantKey(unit: ReportUnit) {
   return unit.tenantId || `name:${unit.tenant.trim().toLocaleLowerCase("pt-BR")}`;
 }
 
+function reportOrderText(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim();
+}
+
+function isRioBuilding(building: Pick<Building, "name" | "city" | "state">) {
+  const city = reportOrderText(building.city);
+  const state = reportOrderText(building.state);
+  return state === "rj" || city.includes("rio de janeiro") || city.includes("buzios");
+}
+
+function rioPriority(building: Pick<Building, "name">) {
+  const name = reportOrderText(building.name);
+  if (name.includes("apartamento ipanema")) return 0;
+  if (name.includes("casa buzios")) return 1;
+  return 2;
+}
+
+function sortReportBuildings(buildings: Building[]) {
+  const groupOrder = new Map<string, number>();
+  buildings.forEach((building, index) => {
+    const key = `${reportOrderText(building.city)}|${reportOrderText(building.state)}`;
+    if (!groupOrder.has(key)) groupOrder.set(key, index);
+  });
+  return [...buildings].sort((left, right) => {
+    const leftRio = isRioBuilding(left);
+    const rightRio = isRioBuilding(right);
+    if (leftRio !== rightRio) return leftRio ? 1 : -1;
+    if (leftRio && rightRio) {
+      const priorityDifference = rioPriority(left) - rioPriority(right);
+      if (priorityDifference !== 0) return priorityDifference;
+    }
+    const leftGroup = `${reportOrderText(left.city)}|${reportOrderText(left.state)}`;
+    const rightGroup = `${reportOrderText(right.city)}|${reportOrderText(right.state)}`;
+    return (groupOrder.get(leftGroup) ?? 0) - (groupOrder.get(rightGroup) ?? 0) || left.name.localeCompare(right.name, "pt-BR");
+  });
+}
+
 export function buildMonthlyReport(buildings: Building[], payments: LeasePaymentRecord[], expenses: ExpenseRecord[], month: string): MonthlyReportData {
   const today = currentDateKey();
-  const reportBuildings = buildings.map((building) => {
+  const reportBuildings = sortReportBuildings(buildings).map((building) => {
     const units = (building.unitsData ?? []).map((unit) => {
       const isActive = activeLease(unit, month);
       const payment = paymentForMonth(unit, payments, month);
@@ -151,7 +189,7 @@ export function buildMonthlyReport(buildings: Building[], payments: LeasePayment
     const occupiedUnits = units.filter((unit) => unit.status !== "no_lease").reduce((total, unit) => total + Math.max(1, unit.quantity || 1), 0);
     const expectedAmount = units.reduce((total, unit) => total + unit.expectedAmount, 0);
     const receivedAmount = units.reduce((total, unit) => total + unit.receivedAmount, 0);
-    return { id: building.id, name: building.name, city: building.city, state: building.state, forSale: buildingIsForSale(building), nearSale: Boolean(building.saleProximity), units, totalUnits, occupiedUnits, expectedAmount, receivedAmount, paymentRate: expectedAmount > 0 ? Math.min(100, Math.round((receivedAmount / expectedAmount) * 100)) : 0 } satisfies ReportBuilding;
+    return { id: building.id, name: building.name, city: building.city, state: building.state, value: Number(building.value || 0), forSale: buildingIsForSale(building), nearSale: Boolean(building.saleProximity), units, totalUnits, occupiedUnits, expectedAmount, receivedAmount, paymentRate: expectedAmount > 0 ? Math.min(100, Math.round((receivedAmount / expectedAmount) * 100)) : 0 } satisfies ReportBuilding;
   });
   const allUnits = reportBuildings.flatMap((building) => building.units);
   const chargedUnits = allUnits.filter((unit) => unit.status !== "no_lease");
@@ -294,11 +332,11 @@ export function downloadMonthlyReportPdf(report: MonthlyReportData, categories: 
     setText(colors.text); doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.text("Recebimentos por imóvel", x + 8, y + 10);
     setText(colors.muted); doc.setFont("helvetica", "normal"); doc.setFontSize(6.8); doc.text("Comparativo do previsto e do recebido", x + 8, y + 16);
     if (!buildings.length) { doc.text("Nenhum imóvel com cobrança no mês.", x + 8, y + 31); cursor += cardHeight + 10; return; }
-    const barX = x + 8; const barWidth = width - 16; buildings.forEach((building, index) => { const rowY = y + 24 + index * 11; const ratio = building.expectedAmount > 0 ? Math.min(1, building.receivedAmount / building.expectedAmount) : 0; setText(colors.text); doc.setFontSize(6.8); doc.text(pdfText(shortText(building.name, 35)), barX, rowY); setText(colors.muted); doc.text(`${building.paymentRate}%`, x + width - 8, rowY, { align: "right" }); setFill(colors.surfaceAlt); doc.roundedRect(barX, rowY + 2, barWidth, 3, 1.5, 1.5, "F"); setFill(colors.green); doc.roundedRect(barX, rowY + 2, Math.max(1, barWidth * ratio), 3, 1.5, 1.5, "F"); });
+    const barX = x + 8; const barWidth = width - 16; buildings.forEach((building, index) => { const rowY = y + 24 + index * 11; const ratio = building.expectedAmount > 0 ? Math.min(1, building.receivedAmount / building.expectedAmount) : 0; setText(colors.text); doc.setFontSize(6.8); doc.text(pdfText(shortText(building.name, 35)), barX, rowY); setText(colors.muted); doc.text(`${brl(building.value)} · ${building.paymentRate}%`, x + width - 8, rowY, { align: "right" }); setFill(colors.surfaceAlt); doc.roundedRect(barX, rowY + 2, barWidth, 3, 1.5, 1.5, "F"); setFill(colors.green); doc.roundedRect(barX, rowY + 2, Math.max(1, barWidth * ratio), 3, 1.5, 1.5, "F"); });
     cursor += cardHeight + 10;
   };
   const table = (head: string[], body: string[][]) => {
-    autoTable(doc, { startY: cursor, margin: { left: margin, right: margin, top: 24, bottom: 19 }, head: [head.map(pdfText)], body: body.map((row) => row.map(pdfText)), theme: "grid", styles: { font: "helvetica", fontSize: 7.2, cellPadding: 2.5, textColor: colors.text, fillColor: colors.surface, lineColor: colors.line, lineWidth: .2, overflow: "linebreak" }, headStyles: { fillColor: colors.surfaceAlt, textColor: colors.green, fontStyle: "bold" }, alternateRowStyles: { fillColor: [20, 32, 48] }, didDrawPage: (data) => { if (data.pageNumber > 1) { drawBackground(); drawSmallHeader(); } } });
+    autoTable(doc, { startY: cursor, margin: { left: margin, right: margin, top: 24, bottom: 19 }, head: [head.map(pdfText)], body: body.map((row) => row.map(pdfText)), theme: "grid", styles: { font: "helvetica", fontSize: 7.2, cellPadding: 2.5, textColor: colors.text, fillColor: colors.surface, lineColor: colors.line, lineWidth: .2, overflow: "linebreak" }, headStyles: { fillColor: colors.surfaceAlt, textColor: colors.green, fontStyle: "bold" }, alternateRowStyles: { fillColor: [20, 32, 48] }, willDrawPage: (data) => { if (data.pageNumber > 1) { drawBackground(); drawSmallHeader(); } } });
     cursor = (doc.lastAutoTable?.finalY ?? cursor) + 9;
   };
   drawBackground();
@@ -326,12 +364,16 @@ export function downloadMonthlyReportPdf(report: MonthlyReportData, categories: 
     for (const building of report.buildings) {
       if (!building.units.length) continue;
       const highlights = propertyHighlightLabels(building);
-      ensureSpace(highlights.length ? 30 : 22);
+      const headingHeight = highlights.length ? 30 : 22;
+      const tableEstimate = 20 + Math.min(building.units.length, 8) * 8;
+      ensureSpace(headingHeight + tableEstimate);
       setText(colors.text); doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.text(pdfText(shortText(`${building.name}${building.city ? ` - ${building.city}${building.state ? `/${building.state}` : ""}` : ""}`, 70)), margin, cursor);
       setText(colors.green); doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.text(`${building.paymentRate}% pago · ${brl(building.receivedAmount)} / ${brl(building.expectedAmount)}`, pageWidth - margin, cursor, { align: "right" });
+      setText(building.forSale ? colors.red : building.nearSale ? colors.amber : colors.muted); doc.setFontSize(6.5); doc.text(`Valor: ${brl(building.value)}`, pageWidth - margin, cursor + 5, { align: "right" });
       if (highlights.length) {
         let highlightX = margin;
         for (const highlight of highlights) {
+          doc.setFont("helvetica", "bold"); doc.setFontSize(6);
           const highlightWidth = doc.getTextWidth(pdfText(highlight)) + 8;
           const highlightColor = highlight === "À venda" ? colors.red : colors.amber;
           setFill(highlightColor); doc.roundedRect(highlightX, cursor + 3, highlightWidth, 4.5, 1.5, 1.5, "F");
@@ -344,6 +386,7 @@ export function downloadMonthlyReportPdf(report: MonthlyReportData, categories: 
     }
   }
   if (hasCategory(categories, "unpaid")) {
+    ensureSpace(42 + Math.min(report.unpaidTenants.length || 1, 7) * 8);
     sectionTitle("Inquilinos que não pagaram", "Pendências agrupadas por inquilino");
     table(["Inquilino", "Imóvel / unidade", "Vencimento", "Em aberto", "Status"], report.unpaidTenants.length ? report.unpaidTenants.map((tenant) => [tenant.tenant, tenant.units.join("; "), tenant.dueDates.length ? tenant.dueDates.map(dateLabel).join(", ") : "Sem vencimento", brl(Math.max(0, tenant.expectedAmount - tenant.receivedAmount)), statusLabels[tenant.status]]) : [["Nenhuma pendência", "-", "-", brl(0), "Pago ou isento"]]);
   }
@@ -375,7 +418,7 @@ export function MonthlyReport({ report, categories, onClose }: { report: Monthly
         <div className="report-section-heading"><div><h3>Prédios, imóveis e unidades</h3><p>{report.buildings.length} imóveis · {report.totalUnits} unidades cadastradas · {report.chargedUnits} com cobrança no mês</p></div></div>
         {report.buildings.length ? <div className="report-building-list">{report.buildings.map((building) => {
           const highlights = propertyHighlightLabels(building);
-          return <div className="report-building" key={building.id}><div className="report-building-heading"><div><strong>{building.name}</strong><small>{[building.city, building.state].filter(Boolean).join(" · ") || "Localização não informada"}</small>{highlights.length > 0 && <div className="report-building-flags">{highlights.map((highlight) => <span className={`report-building-flag ${highlight === "À venda" ? "sale" : "near-sale"}`} key={highlight}>{highlight}</span>)}</div>}</div><span>{building.units.length} unidade{building.units.length === 1 ? "" : "s"} · {building.paymentRate}% pago</span></div>{building.units.length ? <div className="table-wrap"><table className="report-table"><thead><tr><th>Unidade</th><th>Inquilino</th><th>Previsto</th><th>Recebido</th><th>Status</th></tr></thead><tbody>{building.units.map((unit) => <tr key={unit.id}><td><strong>{unit.code}</strong><small>{unit.type}{unit.quantity > 1 ? ` · ${unit.quantity} unidades` : ""}</small></td><td>{unit.status === "no_lease" ? "-" : unit.tenant}</td><td>{unit.status === "no_lease" ? "-" : brl(unit.expectedAmount)}</td><td>{unit.status === "no_lease" ? "-" : brl(unit.receivedAmount)}</td><td><span className={`report-status report-status-${unit.status}`}>{statusLabels[unit.status]}</span>{unit.status !== "no_lease" && <small>{unit.status === "paid" || unit.status === "waived" ? "Competência quitada" : dateLabel(unit.dueDate)}</small>}</td></tr>)}</tbody></table></div> : <p className="report-empty-line">Nenhuma unidade cadastrada neste imóvel.</p>}</div>;
+          return <div className="report-building" key={building.id}><div className="report-building-heading"><div><strong>{building.name}</strong><small>{[building.city, building.state].filter(Boolean).join(" · ") || "Localização não informada"}</small>{highlights.length > 0 && <div className="report-building-flags">{highlights.map((highlight) => <span className={`report-building-flag ${highlight === "À venda" ? "sale" : "near-sale"}`} key={highlight}>{highlight}</span>)}</div>}</div><div className="report-building-summary"><span>{building.units.length} unidade{building.units.length === 1 ? "" : "s"} · {building.paymentRate}% pago</span><strong className={building.forSale ? "for-sale" : building.nearSale ? "near-sale" : ""}>Valor: {brl(building.value)}</strong></div></div>{building.units.length ? <div className="table-wrap"><table className="report-table"><thead><tr><th>Unidade</th><th>Inquilino</th><th>Previsto</th><th>Recebido</th><th>Status</th></tr></thead><tbody>{building.units.map((unit) => <tr key={unit.id}><td><strong>{unit.code}</strong><small>{unit.type}{unit.quantity > 1 ? ` · ${unit.quantity} unidades` : ""}</small></td><td>{unit.status === "no_lease" ? "-" : unit.tenant}</td><td>{unit.status === "no_lease" ? "-" : brl(unit.expectedAmount)}</td><td>{unit.status === "no_lease" ? "-" : brl(unit.receivedAmount)}</td><td><span className={`report-status report-status-${unit.status}`}>{statusLabels[unit.status]}</span>{unit.status !== "no_lease" && <small>{unit.status === "paid" || unit.status === "waived" ? "Competência quitada" : dateLabel(unit.dueDate)}</small>}</td></tr>)}</tbody></table></div> : <p className="report-empty-line">Nenhuma unidade cadastrada neste imóvel.</p>}</div>;
         })}</div> : <div className="empty-state report-empty"><FileText size={28} /><h3>Nenhum imóvel encontrado</h3><p>Não há imóveis disponíveis para esta organização.</p></div>}
       </section>}
       {hasCategory(categories, "unpaid") && <section className="report-section"><div className="report-section-heading"><div><h3>Inquilinos que não pagaram</h3><p>Pendências agrupadas por inquilino, sem duplicar quem ocupa mais de uma unidade.</p></div><span className={report.unpaidTenants.length ? "negative" : "positive"}>{report.unpaidTenants.length} pendência{report.unpaidTenants.length === 1 ? "" : "s"}</span></div>{report.unpaidTenants.length ? <div className="table-wrap"><table className="report-table report-unpaid-table"><thead><tr><th>Inquilino</th><th>Imóvel / unidade</th><th>Vencimento</th><th>Em aberto</th><th>Status</th></tr></thead><tbody>{report.unpaidTenants.map((tenant) => <tr key={tenant.id}><td><strong>{tenant.tenant}</strong></td><td>{tenant.units.join("; ")}</td><td>{tenant.dueDates.length ? tenant.dueDates.map(dateLabel).join(", ") : "Sem vencimento"}</td><td className="negative"><strong>{brl(Math.max(0, tenant.expectedAmount - tenant.receivedAmount))}</strong><small>de {brl(tenant.expectedAmount)}</small></td><td><span className={`report-status report-status-${tenant.status}`}>{statusLabels[tenant.status]}</span></td></tr>)}</tbody></table></div> : <div className="report-success"><Users size={19} /><div><strong>Nenhuma pendência identificada</strong><p>Todos os inquilinos com cobrança no mês estão pagos ou isentos.</p></div></div>}</section>}
@@ -402,7 +445,7 @@ function ReportVisuals({ report }: { report: MonthlyReportData }) {
   return <div className="report-visuals">
     <div className="report-visual-card report-health-card"><div className="report-visual-heading"><div><strong>Saúde da carteira</strong><small>Indicadores da competência selecionada</small></div><span className="report-visual-badge">{report.monthLabel}</span></div><div className="report-health-grid"><div className="report-ring-wrap"><div className="report-ring" style={{ background: `conic-gradient(#80e2b0 ${report.occupancyRate}%, rgba(255,255,255,.08) 0)` }}><div><strong>{report.occupancyRate}%</strong><small>ocupação</small></div></div><span>{report.occupiedUnits} de {report.totalUnits} unidades ocupadas</span></div><div className="report-ring-wrap"><div className="report-ring" style={{ background: `conic-gradient(#62b6ff ${report.paymentRate}%, rgba(255,255,255,.08) 0)` }}><div><strong>{report.paymentRate}%</strong><small>pagamentos</small></div></div><span>{report.paidUnits} de {report.chargedUnits} cobranças pagas</span></div></div></div>
     <div className="report-visual-card report-chart-card"><div className="report-visual-heading"><div><strong>Aluguéis individuais</strong><small>Previsto x recebido por unidade</small></div><div className="report-chart-legend"><span><i className="expected" /> Previsto</span><span><i className="received" /> Recebido</span></div></div>{lineUnits.length ? <><svg className="report-line-chart" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="Gráfico de aluguéis individuais previstos e recebidos"><line x1={chartLeft} x2={chartWidth - chartRight} y1={chartTop} y2={chartTop} /><line x1={chartLeft} x2={chartWidth - chartRight} y1={(chartHeight - chartBottom + chartTop) / 2} y2={(chartHeight - chartBottom + chartTop) / 2} /><line x1={chartLeft} x2={chartWidth - chartRight} y1={chartHeight - chartBottom} y2={chartHeight - chartBottom} /><polyline className="report-chart-line expected" points={expectedPoints} /><polyline className="report-chart-line received" points={receivedPoints} />{lineUnits.map((unit, index) => <g key={unit.id}><circle className="report-chart-point expected" cx={chartX(index)} cy={chartY(unit.expectedAmount)} r="3" /><circle className="report-chart-point received" cx={chartX(index)} cy={chartY(unit.receivedAmount)} r="3" /><text x={chartX(index)} y={chartHeight - 11} textAnchor="middle">{unit.code.length > 8 ? `${unit.code.slice(0, 7)}…` : unit.code}</text></g>)}</svg><p className="report-chart-note">Exibindo as {lineUnits.length} maiores cobranças do mês.</p></> : <div className="report-chart-empty">Nenhuma cobrança de aluguel encontrada nesta competência.</div>}</div>
-    <div className="report-visual-card report-property-chart"><div className="report-visual-heading"><div><strong>Recebimentos por imóvel</strong><small>Comparativo do previsto e do recebido</small></div></div>{propertyBars.length ? <div className="report-property-bars">{propertyBars.map((building) => <div className="report-property-bar" key={building.id}><div><strong>{building.name}</strong><span>{brl(building.receivedAmount)} / {brl(building.expectedAmount)}</span></div><div className="report-bar-track"><i style={{ width: `${Math.min(100, building.expectedAmount ? building.receivedAmount / building.expectedAmount * 100 : 0)}%` }} /><b style={{ width: `${Math.min(100, building.expectedAmount ? building.receivedAmount / building.expectedAmount * 100 : 0)}%` }} /></div></div>)}</div> : <div className="report-chart-empty">Nenhum imóvel com cobrança no mês.</div>}</div>
+    <div className="report-visual-card report-property-chart"><div className="report-visual-heading"><div><strong>Recebimentos por imóvel</strong><small>Comparativo do previsto e do recebido</small></div></div>{propertyBars.length ? <div className="report-property-bars">{propertyBars.map((building) => <div className="report-property-bar" key={building.id}><div><strong>{building.name}</strong><span>Valor {brl(building.value)} · {brl(building.receivedAmount)} / {brl(building.expectedAmount)}</span></div><div className="report-bar-track"><i style={{ width: `${Math.min(100, building.expectedAmount ? building.receivedAmount / building.expectedAmount * 100 : 0)}%` }} /><b style={{ width: `${Math.min(100, building.expectedAmount ? building.receivedAmount / building.expectedAmount * 100 : 0)}%` }} /></div></div>)}</div> : <div className="report-chart-empty">Nenhum imóvel com cobrança no mês.</div>}</div>
   </div>;
 }
 
