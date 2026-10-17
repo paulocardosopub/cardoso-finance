@@ -427,14 +427,14 @@ td small { display:flex; align-items:center; gap:4px; color:var(--muted); font-s
 .report-bar-track { height:6px; overflow:hidden; border-radius:4px; background:rgba(255,255,255,.08); }
 .report-bar-track i { display:block; height:100%; border-radius:4px; background:linear-gradient(90deg,#62b6ff,#80e2b0); }
 .report-bar-track b { display:none; }
-.report-section { padding-top:22px; margin-top:22px; border-top:1px solid var(--line); }
-.report-section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:13px; }
+.report-section { padding-top:18px; margin-top:18px; border-top:1px solid var(--line); }
+.report-section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:10px; }
 .report-section-heading h3 { font-size:15px; }
 .report-section-heading p { color:var(--muted); font-size:11px; line-height:1.4; margin-top:4px; }
 .report-section-heading > span { flex:0 0 auto; font-size:11px; font-weight:600; }
-.report-building-list { display:grid; gap:10px; }
+.report-building-list { display:grid; gap:8px; }
 .report-building { border:1px solid var(--line); border-radius:12px; overflow:hidden; background:rgba(255,255,255,.018); }
-.report-building-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px 14px; background:rgba(128,226,176,.045); }
+.report-building-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 14px; background:rgba(128,226,176,.045); }
 .report-building-heading strong { display:block; font-size:12px; }
 .report-building-heading small { display:block; color:var(--muted); font-size:10px; margin-top:4px; }
 .report-building-heading > span { color:var(--muted); font-size:10px; white-space:nowrap; }
@@ -448,7 +448,7 @@ td small { display:flex; align-items:center; gap:4px; color:var(--muted); font-s
 .report-building-flag.near-sale { color:#f0be4a; border-color:rgba(240,190,74,.4); background:rgba(240,190,74,.1); }
 .report-table { min-width:700px; }
 .report-table th { padding:11px 12px; font-size:9px; }
-.report-table td { padding:11px 12px; font-size:11px; }
+.report-table td { padding:9px 12px; font-size:11px; }
 .report-table td small { font-size:9px; }
 .report-table .negative { color:var(--danger); }
 .report-status { display:inline-flex; align-items:center; padding:4px 7px; border-radius:5px; font-size:9px; font-weight:700; white-space:nowrap; }
@@ -463,6 +463,19 @@ td small { display:flex; align-items:center; gap:4px; color:var(--muted); font-s
 .report-success { display:flex; align-items:flex-start; gap:10px; padding:15px; border:1px solid rgba(128,226,176,.18); border-radius:10px; color:var(--accent); background:rgba(128,226,176,.05); }
 .report-success strong { display:block; color:var(--text); font-size:12px; }
 .report-success p { color:var(--muted); font-size:11px; margin-top:4px; }
+.report-work-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:10px; }
+.report-work-summary > div { display:grid; gap:3px; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:rgba(255,255,255,.018); }
+.report-work-summary strong { font-size:15px; }
+.report-work-summary small { color:var(--muted); font-size:9px; }
+.report-work-list { display:grid; gap:6px; }
+.report-work-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; padding:9px 11px; border:1px solid var(--line); border-radius:9px; background:rgba(255,255,255,.018); }
+.report-work-row > div { min-width:0; }
+.report-work-row > div > strong { display:block; font-size:11px; }
+.report-work-row small { display:block; margin-top:3px; color:var(--muted); font-size:9px; }
+.report-work-row p { overflow:hidden; margin-top:3px; color:var(--muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.report-work-row > strong { white-space:nowrap; font-size:11px; }
+.report-work-empty { display:flex; align-items:center; gap:8px; padding:12px; border:1px dashed var(--line); border-radius:9px; color:var(--muted); font-size:10px; }
+.report-work-more { margin-top:7px; color:var(--muted); font-size:10px; }
 .report-modal-footer { display:flex; align-items:center; justify-content:space-between; gap:15px; padding-top:21px; margin-top:22px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; }
 .report-modal-footer strong { font-size:12px; }
 .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }

@@ -9,7 +9,7 @@ import { brl, compactBrl } from "@/lib/format";
 import type { Building } from "@/types/domain";
 import { buildingPath } from "@/lib/building-path";
 import { buildingIsForSale, sortBuildingsForDisplay } from "@/lib/building-order";
-import { buildMonthlyReport, defaultReportCategories, downloadMonthlyReportPdf, MonthlyReport, ReportRequestDialog, type ReportCategorySelection } from "@/components/monthly-report";
+import { buildMonthlyReport, defaultReportCategories, downloadMonthlyReportPdf, MonthlyReport, ReportRequestDialog, type ReportActivity, type ReportCategorySelection } from "@/components/monthly-report";
 import { useEffect, useState } from "react";
 import { PropertyMap, type PropertyMapPin } from "@/components/property-map";
 import { EmployeeDashboard } from "@/components/employee-dashboard";
@@ -40,7 +40,27 @@ export default function DashboardPage() {
   const [reportMonth, setReportMonth] = useState<string | null>(null);
   const [reportRequestOpen, setReportRequestOpen] = useState(false);
   const [reportCategories, setReportCategories] = useState<ReportCategorySelection>({ ...defaultReportCategories });
+  const [reportActivities, setReportActivities] = useState<ReportActivity[]>([]);
   useEffect(() => { setWelcomeIndex(Math.floor(Math.random() * welcomeMessages.length)); }, []);
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase || !organizationId) return;
+    let active = true;
+    const load = async () => {
+      const result = await supabase.from("financial_history").select("id, event_type, amount, description, occurred_at, created_by, source_payment_id").eq("organization_id", organizationId).order("occurred_at", { ascending: false }).limit(300);
+      if (!active || result.error) return;
+      const rows = (result.data ?? []) as Array<{ id: string | number; event_type: string; amount: number | string | null; description: string | null; occurred_at: string; created_by: string | null; source_payment_id: string | null }>;
+      setReportActivities(rows.map((row) => {
+        const createdBy = row.created_by ? String(row.created_by) : null;
+        const member = previewMembers.find((item) => item.userId === createdBy);
+        return { id: String(row.id), eventType: row.event_type === "debit" ? "debit" : "credit", amount: Number(row.amount ?? 0), description: String(row.description ?? ""), occurredAt: String(row.occurred_at ?? ""), createdBy, actorName: member?.name ?? "Funcionária não identificada", actorRole: member?.role ?? "unknown", sourcePaymentId: row.source_payment_id ? String(row.source_payment_id) : null };
+      }));
+    };
+    void load();
+    const onFocus = () => { void load(); };
+    window.addEventListener("focus", onFocus);
+    return () => { active = false; window.removeEventListener("focus", onFocus); };
+  }, [organizationId, previewMembers]);
   const activeBuildings = sortBuildingsForDisplay(buildings.filter((building) => building.status !== "vendido"));
   const totalValue = activeBuildings.reduce((total, building) => total + building.value, 0);
   const occupied = activeBuildings.reduce((total, building) => total + building.occupied, 0);
@@ -77,12 +97,12 @@ export default function DashboardPage() {
   }).length;
   const saleBuildings = activeBuildings.filter(isForSale);
   const canRequestReport = role !== "viewer";
-  const report = reportMonth ? buildMonthlyReport(activeBuildings, leasePayments, expenses, reportMonth) : null;
+  const report = reportMonth ? buildMonthlyReport(activeBuildings, leasePayments, expenses, reportMonth, reportActivities) : null;
   function requestReport() {
     setReportRequestOpen(true);
   }
   function generateReport(month: string, categories: ReportCategorySelection, download: boolean) {
-    const nextReport = buildMonthlyReport(activeBuildings, leasePayments, expenses, month);
+    const nextReport = buildMonthlyReport(activeBuildings, leasePayments, expenses, month, reportActivities);
     setSelectedMonth(month);
     setReportMonth(month);
     setReportCategories(categories);

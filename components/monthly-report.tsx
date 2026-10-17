@@ -10,15 +10,16 @@ import { brl } from "@/lib/format";
 import { buildingIsForSale } from "@/lib/building-order";
 
 export type ReportPaymentStatus = "paid" | "waived" | "partial" | "pending" | "overdue" | "no_lease";
-export type ReportCategory = "summary" | "properties" | "unpaid";
+export type ReportCategory = "summary" | "properties" | "unpaid" | "work";
 export type ReportCategorySelection = Record<ReportCategory, boolean>;
 
-export const defaultReportCategories: ReportCategorySelection = { summary: true, properties: true, unpaid: true };
+export const defaultReportCategories: ReportCategorySelection = { summary: true, properties: true, unpaid: true, work: true };
 
 const categoryOptions: Array<{ id: ReportCategory; label: string; description: string }> = [
   { id: "summary", label: "Resumo geral", description: "Recebimentos, despesas, taxa de pagamento e resultado líquido." },
   { id: "properties", label: "Prédios, imóveis e unidades", description: "Unidades, inquilinos e status de pagamento por imóvel." },
   { id: "unpaid", label: "Inquilinos que não pagaram", description: "Pendências agrupadas por inquilino na competência escolhida." },
+  { id: "work", label: "Trabalho da funcionária", description: "Ações operacionais registradas pela equipe na competência escolhida." },
 ];
 
 export type ReportUnit = {
@@ -60,11 +61,27 @@ export type ReportUnpaidTenant = {
   status: Exclude<ReportPaymentStatus, "no_lease" | "paid" | "waived">;
 };
 
+export type ReportActivity = {
+  id: string;
+  eventType: "credit" | "debit";
+  amount: number;
+  description: string;
+  occurredAt: string;
+  createdBy: string | null;
+  actorName: string;
+  actorRole: string;
+  sourcePaymentId: string | null;
+};
+
 export type MonthlyReportData = {
   month: string;
   monthLabel: string;
   buildings: ReportBuilding[];
   unpaidTenants: ReportUnpaidTenant[];
+  employeeWork: ReportActivity[];
+  employeeWorkTotal: number;
+  employeeWorkCredits: number;
+  employeeWorkDebits: number;
   totalUnits: number;
   occupiedUnits: number;
   occupancyRate: number;
@@ -145,29 +162,40 @@ function rioPriority(building: Pick<Building, "name">) {
   return 2;
 }
 
-function sortReportBuildings(buildings: Building[]) {
+function reportBuildingBlock(building: ReportBuilding) {
+  if (!building.forSale) return 0;
+  if (building.occupiedUnits > 0) return 1;
+  return isRioBuilding(building) ? 3 : 2;
+}
+
+function sortReportBuildings(buildings: ReportBuilding[]) {
   const groupOrder = new Map<string, number>();
   buildings.forEach((building, index) => {
     const key = `${reportOrderText(building.city)}|${reportOrderText(building.state)}`;
     if (!groupOrder.has(key)) groupOrder.set(key, index);
   });
   return [...buildings].sort((left, right) => {
-    const leftRio = isRioBuilding(left);
-    const rightRio = isRioBuilding(right);
-    if (leftRio !== rightRio) return leftRio ? 1 : -1;
-    if (leftRio && rightRio) {
-      const priorityDifference = rioPriority(left) - rioPriority(right);
-      if (priorityDifference !== 0) return priorityDifference;
-    }
+    const blockDifference = reportBuildingBlock(left) - reportBuildingBlock(right);
+    if (blockDifference !== 0) return blockDifference;
     const leftGroup = `${reportOrderText(left.city)}|${reportOrderText(left.state)}`;
     const rightGroup = `${reportOrderText(right.city)}|${reportOrderText(right.state)}`;
-    return (groupOrder.get(leftGroup) ?? 0) - (groupOrder.get(rightGroup) ?? 0) || left.name.localeCompare(right.name, "pt-BR");
+    const groupDifference = (groupOrder.get(leftGroup) ?? 0) - (groupOrder.get(rightGroup) ?? 0);
+    if (groupDifference !== 0) return groupDifference;
+    const expectedDifference = right.expectedAmount - left.expectedAmount;
+    const occupiedDifference = right.occupiedUnits - left.occupiedUnits;
+    if (reportBuildingBlock(left) <= 1 && (expectedDifference !== 0 || occupiedDifference !== 0)) return expectedDifference || occupiedDifference;
+    return right.value - left.value || rioPriority(left) - rioPriority(right) || left.name.localeCompare(right.name, "pt-BR");
   });
 }
 
-export function buildMonthlyReport(buildings: Building[], payments: LeasePaymentRecord[], expenses: ExpenseRecord[], month: string): MonthlyReportData {
+function reportActivityAction(activity: ReportActivity) {
+  if (activity.sourcePaymentId) return activity.eventType === "credit" ? "Registrou pagamento" : "Desfez pagamento";
+  return activity.eventType === "credit" ? "Registrou crédito" : "Registrou débito";
+}
+
+export function buildMonthlyReport(buildings: Building[], payments: LeasePaymentRecord[], expenses: ExpenseRecord[], month: string, activities: ReportActivity[] = []): MonthlyReportData {
   const today = currentDateKey();
-  const reportBuildings = sortReportBuildings(buildings).map((building) => {
+  const mappedBuildings = buildings.map((building) => {
     const units = (building.unitsData ?? []).map((unit) => {
       const isActive = activeLease(unit, month);
       const payment = paymentForMonth(unit, payments, month);
@@ -191,6 +219,7 @@ export function buildMonthlyReport(buildings: Building[], payments: LeasePayment
     const receivedAmount = units.reduce((total, unit) => total + unit.receivedAmount, 0);
     return { id: building.id, name: building.name, city: building.city, state: building.state, value: Number(building.value || 0), forSale: buildingIsForSale(building), nearSale: Boolean(building.saleProximity), units, totalUnits, occupiedUnits, expectedAmount, receivedAmount, paymentRate: expectedAmount > 0 ? Math.min(100, Math.round((receivedAmount / expectedAmount) * 100)) : 0 } satisfies ReportBuilding;
   });
+  const reportBuildings = sortReportBuildings(mappedBuildings);
   const allUnits = reportBuildings.flatMap((building) => building.units);
   const chargedUnits = allUnits.filter((unit) => unit.status !== "no_lease");
   const paidUnits = chargedUnits.filter((unit) => unit.status === "paid" || unit.status === "waived");
@@ -215,8 +244,11 @@ export function buildMonthlyReport(buildings: Building[], payments: LeasePayment
   const occupiedUnits = allUnits.filter((unit) => unit.status !== "no_lease").reduce((total, unit) => total + Math.max(1, unit.quantity || 1), 0);
   const totalUnitCount = allUnits.reduce((total, unit) => total + Math.max(1, unit.quantity || 1), 0);
   const monthExpenses = expenses.filter((expense) => expense.competence?.slice(0, 7) === month || expense.expense_date?.slice(0, 7) === month).reduce((total, expense) => total + Number(expense.value || 0), 0);
+  const employeeWorkRows = activities.filter((activity) => activity.actorRole === "employee" && activity.occurredAt.slice(0, 7) === month).sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
+  const employeeWorkCredits = employeeWorkRows.filter((activity) => activity.eventType === "credit").reduce((total, activity) => total + activity.amount, 0);
+  const employeeWorkDebits = employeeWorkRows.filter((activity) => activity.eventType === "debit").reduce((total, activity) => total + activity.amount, 0);
 
-  return { month, monthLabel: monthLabel(month), buildings: reportBuildings, unpaidTenants, totalUnits: totalUnitCount, occupiedUnits, occupancyRate: totalUnitCount > 0 ? Math.round((occupiedUnits / totalUnitCount) * 100) : 0, chargedUnits: chargedUnits.length, paidUnits: paidUnits.length, unpaidUnits: unpaidRows.length, expectedRevenue, receivedRevenue, expenses: monthExpenses, netResult: receivedRevenue - monthExpenses, paymentRate: expectedRevenue > 0 ? Math.min(100, Math.round((receivedRevenue / expectedRevenue) * 100)) : 0 };
+  return { month, monthLabel: monthLabel(month), buildings: reportBuildings, unpaidTenants, employeeWork: employeeWorkRows.slice(0, 12), employeeWorkTotal: employeeWorkRows.length, employeeWorkCredits, employeeWorkDebits, totalUnits: totalUnitCount, occupiedUnits, occupancyRate: totalUnitCount > 0 ? Math.round((occupiedUnits / totalUnitCount) * 100) : 0, chargedUnits: chargedUnits.length, paidUnits: paidUnits.length, unpaidUnits: unpaidRows.length, expectedRevenue, receivedRevenue, expenses: monthExpenses, netResult: receivedRevenue - monthExpenses, paymentRate: expectedRevenue > 0 ? Math.min(100, Math.round((receivedRevenue / expectedRevenue) * 100)) : 0 };
 }
 
 function dateLabel(value?: string) {
@@ -336,8 +368,8 @@ export function downloadMonthlyReportPdf(report: MonthlyReportData, categories: 
     cursor += cardHeight + 10;
   };
   const table = (head: string[], body: string[][]) => {
-    autoTable(doc, { startY: cursor, margin: { left: margin, right: margin, top: 24, bottom: 19 }, head: [head.map(pdfText)], body: body.map((row) => row.map(pdfText)), theme: "grid", styles: { font: "helvetica", fontSize: 7.2, cellPadding: 2.5, textColor: colors.text, fillColor: colors.surface, lineColor: colors.line, lineWidth: .2, overflow: "linebreak" }, headStyles: { fillColor: colors.surfaceAlt, textColor: colors.green, fontStyle: "bold" }, alternateRowStyles: { fillColor: [20, 32, 48] }, willDrawPage: (data) => { if (data.pageNumber > 1) { drawBackground(); drawSmallHeader(); } } });
-    cursor = (doc.lastAutoTable?.finalY ?? cursor) + 9;
+    autoTable(doc, { startY: cursor, margin: { left: margin, right: margin, top: 24, bottom: 19 }, head: [head.map(pdfText)], body: body.map((row) => row.map(pdfText)), theme: "grid", styles: { font: "helvetica", fontSize: 7, cellPadding: 2.1, textColor: colors.text, fillColor: colors.surface, lineColor: colors.line, lineWidth: .2, overflow: "linebreak" }, headStyles: { fillColor: colors.surfaceAlt, textColor: colors.green, fontStyle: "bold" }, alternateRowStyles: { fillColor: [20, 32, 48] }, willDrawPage: (data) => { if (data.pageNumber > 1) { drawBackground(); drawSmallHeader(); } } });
+    cursor = (doc.lastAutoTable?.finalY ?? cursor) + 5;
   };
   drawBackground();
   setFill(colors.green); doc.roundedRect(margin, 14, 14, 14, 3, 3, "F"); doc.setFont("helvetica", "bold"); doc.setFontSize(8); setText(colors.bg); doc.text("CF", margin + 7, 22.8, { align: "center" });
@@ -390,6 +422,29 @@ export function downloadMonthlyReportPdf(report: MonthlyReportData, categories: 
     sectionTitle("Inquilinos que não pagaram", "Pendências agrupadas por inquilino");
     table(["Inquilino", "Imóvel / unidade", "Vencimento", "Em aberto", "Status"], report.unpaidTenants.length ? report.unpaidTenants.map((tenant) => [tenant.tenant, tenant.units.join("; "), tenant.dueDates.length ? tenant.dueDates.map(dateLabel).join(", ") : "Sem vencimento", brl(Math.max(0, tenant.expectedAmount - tenant.receivedAmount)), statusLabels[tenant.status]]) : [["Nenhuma pendência", "-", "-", brl(0), "Pago ou isento"]]);
   }
+  if (hasCategory(categories, "work")) {
+    const workRows = report.employeeWork;
+    ensureSpace(52 + Math.min(workRows.length || 1, 6) * 8);
+    sectionTitle("Trabalho da funcionária", `${report.employeeWorkTotal} ação${report.employeeWorkTotal === 1 ? "" : "ões"} operacional${report.employeeWorkTotal === 1 ? "" : "is"} na competência`);
+    const summaryY = cursor;
+    const summaryWidth = (pageWidth - margin * 2 - 8) / 3;
+    const compactMetric = (x: number, label: string, value: string, detail: string, color: [number, number, number]) => {
+      setFill(colors.surface); setStroke(colors.line); doc.roundedRect(x, summaryY, summaryWidth, 18, 2.5, 2.5, "FD");
+      setFill(color); doc.roundedRect(x, summaryY, 2, 18, 1, 1, "F");
+      setText(colors.muted); doc.setFont("helvetica", "normal"); doc.setFontSize(6.3); doc.text(pdfText(label), x + 6, summaryY + 6.5);
+      setText(colors.text); doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); doc.text(pdfText(value), x + 6, summaryY + 13.3);
+      setText(colors.muted); doc.setFont("helvetica", "normal"); doc.setFontSize(5.8); doc.text(pdfText(detail), x + summaryWidth - 5, summaryY + 13.3, { align: "right" });
+    };
+    compactMetric(margin, "AÇÕES", String(report.employeeWorkTotal), "registros", colors.blue);
+    compactMetric(margin + summaryWidth + 4, "PAGAMENTOS", brl(report.employeeWorkCredits), "confirmados", colors.green);
+    compactMetric(margin + (summaryWidth + 4) * 2, "ESTORNOS", brl(report.employeeWorkDebits), "desfeitos", colors.red);
+    cursor += 23;
+    table(["Funcionária", "Ação", "Data", "Valor"], workRows.length ? workRows.map((activity) => [activity.actorName, reportActivityAction(activity), new Date(activity.occurredAt).toLocaleDateString("pt-BR"), `${activity.eventType === "credit" ? "+" : "-"}${brl(activity.amount)}`]) : [["Nenhuma funcionária", "Nenhuma ação registrada", "-", brl(0)]]);
+    if (report.employeeWorkTotal > workRows.length) {
+      setText(colors.muted); doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.text(pdfText(`+ ${report.employeeWorkTotal - workRows.length} ação${report.employeeWorkTotal - workRows.length === 1 ? "" : "ões"} adicional${report.employeeWorkTotal - workRows.length === 1 ? "" : "is"} resumida${report.employeeWorkTotal - workRows.length === 1 ? "" : "s"} no total acima.`), margin, cursor);
+      cursor += 8;
+    }
+  }
   for (let page = 1; page <= doc.getNumberOfPages(); page++) { doc.setPage(page); drawFooter(page); }
   doc.save(reportFileName(report.month));
 }
@@ -422,6 +477,7 @@ export function MonthlyReport({ report, categories, onClose }: { report: Monthly
         })}</div> : <div className="empty-state report-empty"><FileText size={28} /><h3>Nenhum imóvel encontrado</h3><p>Não há imóveis disponíveis para esta organização.</p></div>}
       </section>}
       {hasCategory(categories, "unpaid") && <section className="report-section"><div className="report-section-heading"><div><h3>Inquilinos que não pagaram</h3><p>Pendências agrupadas por inquilino, sem duplicar quem ocupa mais de uma unidade.</p></div><span className={report.unpaidTenants.length ? "negative" : "positive"}>{report.unpaidTenants.length} pendência{report.unpaidTenants.length === 1 ? "" : "s"}</span></div>{report.unpaidTenants.length ? <div className="table-wrap"><table className="report-table report-unpaid-table"><thead><tr><th>Inquilino</th><th>Imóvel / unidade</th><th>Vencimento</th><th>Em aberto</th><th>Status</th></tr></thead><tbody>{report.unpaidTenants.map((tenant) => <tr key={tenant.id}><td><strong>{tenant.tenant}</strong></td><td>{tenant.units.join("; ")}</td><td>{tenant.dueDates.length ? tenant.dueDates.map(dateLabel).join(", ") : "Sem vencimento"}</td><td className="negative"><strong>{brl(Math.max(0, tenant.expectedAmount - tenant.receivedAmount))}</strong><small>de {brl(tenant.expectedAmount)}</small></td><td><span className={`report-status report-status-${tenant.status}`}>{statusLabels[tenant.status]}</span></td></tr>)}</tbody></table></div> : <div className="report-success"><Users size={19} /><div><strong>Nenhuma pendência identificada</strong><p>Todos os inquilinos com cobrança no mês estão pagos ou isentos.</p></div></div>}</section>}
+      {hasCategory(categories, "work") && <section className="report-section report-work-section"><div className="report-section-heading"><div><h3>Trabalho da funcionária</h3><p>Resumo compacto das ações operacionais registradas na competência.</p></div><span className="positive">{report.employeeWorkTotal} ação{report.employeeWorkTotal === 1 ? "" : "ões"}</span></div><div className="report-work-summary"><div><strong>{report.employeeWorkTotal}</strong><small>Ações registradas</small></div><div><strong className="positive">{brl(report.employeeWorkCredits)}</strong><small>Pagamentos confirmados</small></div><div><strong className="negative">{brl(report.employeeWorkDebits)}</strong><small>Estornos realizados</small></div></div>{report.employeeWork.length ? <div className="report-work-list">{report.employeeWork.map((activity) => <div className="report-work-row" key={activity.id}><div><strong>{activity.actorName}</strong><small>{reportActivityAction(activity)} · {new Date(activity.occurredAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</small><p>{activity.description}</p></div><strong className={activity.eventType === "credit" ? "positive" : "negative"}>{activity.eventType === "credit" ? "+" : "−"}{brl(activity.amount)}</strong></div>)}</div> : <div className="report-work-empty"><FileText size={17} /><span>Nenhuma ação de funcionária registrada nesta competência.</span></div>}{report.employeeWorkTotal > report.employeeWork.length && <p className="report-work-more">+ {report.employeeWorkTotal - report.employeeWork.length} ação{report.employeeWorkTotal - report.employeeWork.length === 1 ? "" : "ões"} adicional{report.employeeWorkTotal - report.employeeWork.length === 1 ? "" : "is"} incluída{report.employeeWorkTotal - report.employeeWork.length === 1 ? "" : "s"} nos totais acima.</p>}</section>}
       <div className="report-modal-footer">{hasCategory(categories, "summary") && <span>Resultado líquido recebido - despesas: <strong className={report.netResult < 0 ? "negative" : "positive"}>{brl(report.netResult)}</strong></span>}<div className="report-request-actions"><button type="button" className="button button-ghost" onClick={() => downloadMonthlyReportPdf(report, categories)}><Download size={14} /> Baixar PDF</button><button type="button" className="button button-ghost" onClick={onClose}>Fechar report</button></div></div>
     </section>
   </div>;
