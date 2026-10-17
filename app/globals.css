@@ -445,6 +445,14 @@ td small { display:flex; align-items:center; gap:4px; color:var(--muted); font-s
 .form-grid-wide { grid-column:1 / -1; }
 .edit-modal .onboarding-actions { margin-top:20px; }
 .payment-confirmation-modal { width:min(100%,520px); }
+.payment-confirmation-summary { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:16px 0; padding:12px 14px; border:1px solid rgba(128,226,176,.24); border-radius:10px; background:rgba(128,226,176,.06); }
+.payment-confirmation-summary span { display:block; margin-bottom:5px; color:var(--muted); font-size:10px; }
+.payment-confirmation-summary strong { display:block; color:var(--text); font-size:14px; text-transform:capitalize; }
+.payment-debt-check { margin:0 0 14px; font-size:11px; }
+.payment-debt-alert { display:flex; align-items:flex-start; gap:10px; margin:0 0 16px; padding:12px 14px; border:1px solid rgba(240,190,74,.5); border-radius:10px; color:#f7ce70; background:rgba(240,190,74,.1); line-height:1.45; }
+.payment-debt-alert > svg { flex:0 0 auto; margin-top:1px; }
+.payment-debt-alert strong { display:block; margin-bottom:3px; color:#ffe39a; font-size:12px; }
+.payment-debt-alert p { margin:0; font-size:11px; }
 .payment-proof-field { display:grid; gap:6px; }
 .payment-proof-field > .muted { display:inline; font-size:10px; }
 .payment-proof-input { min-height:42px; display:flex; align-items:center; gap:8px; padding:9px 10px; border:1px dashed rgba(128,226,176,.35); border-radius:8px; color:var(--accent); background:rgba(128,226,176,.04); cursor:pointer; }

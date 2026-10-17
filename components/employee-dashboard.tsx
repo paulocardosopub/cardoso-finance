@@ -10,6 +10,7 @@ import { currentMonthKey, isRentalMonthAvailable, unitRentActiveInMonth, monthLa
 import { captureDeviceLocation } from "@/lib/geolocation";
 import { formatVisitAddress, reverseGeocodeLocation } from "@/lib/reverse-geocode";
 import { uploadPaymentProof } from "@/lib/payment-proof";
+import { outstandingLeaseMonths, type LeasePaymentDebtRow } from "@/lib/payment-debt";
 import { PaymentConfirmationModal, type PaymentConfirmationValues } from "@/components/payment-confirmation-modal";
 import type { Building, PropertyUnit } from "@/types/domain";
 
@@ -29,7 +30,7 @@ export function EmployeeDashboard({ buildings, organizationId, userName, refresh
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
   const [paidLeaseIds, setPaidLeaseIds] = useState<Set<string>>(new Set());
   const [paidAmounts, setPaidAmounts] = useState<Record<string, number>>({});
-  const [paymentConfirmation, setPaymentConfirmation] = useState<{ building: Building; unit: PropertyUnit; values: PaymentConfirmationValues } | null>(null);
+  const [paymentConfirmation, setPaymentConfirmation] = useState<{ building: Building; unit: PropertyUnit; values: PaymentConfirmationValues; priorDebtMonths: string[]; priorDebtLoading: boolean } | null>(null);
   const [recentVisits, setRecentVisits] = useState<Array<{ id: string; building_id: string; unit_id?: string | null; visited_at: string; latitude?: number | null; longitude?: number | null; street?: string | null; neighborhood?: string | null; postal_code?: string | null }>>([]);
   useEffect(() => {
     const supabase = createSupabaseBrowserClient(); if (!supabase) return;
@@ -52,8 +53,15 @@ export function EmployeeDashboard({ buildings, organizationId, userName, refresh
   const forSale = units.filter(({ building, unit }) => isForSale(building) && (unit.status === "venda" || unit.status === "venda_alugado"));
   const rentalMonthAvailable = isRentalMonthAvailable(selectedMonth);
   const openPayments = rentalMonthAvailable ? rented.filter(({ unit }) => !unit.lease?.id || !paidLeaseIds.has(unit.lease.id)) : [];
-  function requestPaymentConfirmation(building: Building, unit: PropertyUnit) {
-    setPaymentConfirmation({ building, unit, values: { paymentDate: localToday(), amount: String(unit.rent), proof: null, note: "" } });
+  async function requestPaymentConfirmation(building: Building, unit: PropertyUnit) {
+    setMessage("");
+    setPaymentConfirmation({ building, unit, values: { paymentDate: localToday(), amount: String(unit.rent), proof: null, note: "", priorDebtMonths: [], priorDebtLoading: Boolean(unit.lease?.id) }, priorDebtMonths: [], priorDebtLoading: Boolean(unit.lease?.id) });
+    if (!unit.lease?.id) return;
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    const result = await supabase.from("lease_payments").select("competence, status, received_amount, expected_amount").eq("organization_id", organizationId).eq("lease_id", unit.lease.id).lt("competence", `${selectedMonth}-01`).order("competence", { ascending: true });
+    const priorDebtMonths = result.error ? [] : outstandingLeaseMonths(unit.lease, selectedMonth, (result.data ?? []) as LeasePaymentDebtRow[]);
+    setPaymentConfirmation((current) => current?.unit.id === unit.id ? { ...current, priorDebtMonths, priorDebtLoading: false, values: { ...current.values, priorDebtMonths, priorDebtLoading: false } } : current);
   }
   async function togglePayment(building: Building, unit: PropertyUnit, paid: boolean, values?: PaymentConfirmationValues) {
     if (!unit.rent || !isRentalMonthAvailable(selectedMonth) || (paid && !values)) return;

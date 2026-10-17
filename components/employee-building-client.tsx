@@ -11,6 +11,7 @@ import { listAuthorizedDocuments, type AuthorizedDocument } from "@/lib/member-a
 import { captureDeviceLocation } from "@/lib/geolocation";
 import { formatVisitAddress, reverseGeocodeLocation } from "@/lib/reverse-geocode";
 import { uploadPaymentProof } from "@/lib/payment-proof";
+import { outstandingLeaseMonths, type LeasePaymentDebtRow } from "@/lib/payment-debt";
 import { PaymentConfirmationModal, type PaymentConfirmationValues } from "@/components/payment-confirmation-modal";
 import type { Building, PropertyUnit, UnitStatus } from "@/types/domain";
 
@@ -40,7 +41,7 @@ export function EmployeeBuildingClient({ building }: { building: Building }) {
   const [quickValue, setQuickValue] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
-  const [paymentConfirmation, setPaymentConfirmation] = useState<{ unit: PropertyUnit; values: PaymentConfirmationValues } | null>(null);
+  const [paymentConfirmation, setPaymentConfirmation] = useState<{ unit: PropertyUnit; values: PaymentConfirmationValues; priorDebtMonths: string[]; priorDebtLoading: boolean } | null>(null);
 
   useEffect(() => {
     if (!organizationId || !building.dbId) return;
@@ -122,8 +123,15 @@ export function EmployeeBuildingClient({ building }: { building: Building }) {
     else { cancelQuickEdit(); setMessage(`${quickEdit.field === "rent" ? "Aluguel" : "Inquilino"} atualizado.`); await refresh(); }
     setBusy(false);
   }
-  function requestPaymentConfirmation(unit: PropertyUnit) {
-    setPaymentConfirmation({ unit, values: { paymentDate: localToday(), amount: String(unit.rent), proof: null, note: "" } });
+  async function requestPaymentConfirmation(unit: PropertyUnit) {
+    setMessage("");
+    setPaymentConfirmation({ unit, values: { paymentDate: localToday(), amount: String(unit.rent), proof: null, note: "", priorDebtMonths: [], priorDebtLoading: Boolean(unit.lease?.id) }, priorDebtMonths: [], priorDebtLoading: Boolean(unit.lease?.id) });
+    if (!unit.lease?.id) return;
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    const result = await supabase.from("lease_payments").select("competence, status, received_amount, expected_amount").eq("organization_id", organizationId).eq("lease_id", unit.lease.id).lt("competence", `${selectedMonth}-01`).order("competence", { ascending: true });
+    const priorDebtMonths = result.error ? [] : outstandingLeaseMonths(unit.lease, selectedMonth, (result.data ?? []) as LeasePaymentDebtRow[]);
+    setPaymentConfirmation((current) => current?.unit.id === unit.id ? { ...current, priorDebtMonths, priorDebtLoading: false, values: { ...current.values, priorDebtMonths, priorDebtLoading: false } } : current);
   }
   async function togglePayment(unit: PropertyUnit, markPaid: boolean, values?: PaymentConfirmationValues) {
     if (!organizationId || !unit.rent || !isRentalMonthAvailable(selectedMonth) || (markPaid && !values)) return;
